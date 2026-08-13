@@ -1,99 +1,82 @@
-//! # LensOS v0.1 Kernel Core Architecture
+//! LensOS Desktop Environment Module
 //!
-//! LensOS is a modular operating system designed with clean separation of concerns.
-//! The `kernel/` module serves as the core kernel implementation and exports all
-//! fundamental subsystems required for operating system execution.
+//! A modular, dark minimalist desktop system with an elegant blue accent theme.
 //!
-//! ## Subsystem Architecture Overview
+//! # Architecture
 //!
-//! - **[`kernel`]**: Central `Kernel` struct that orchestrates subsystem life cycles, boot sequence, and kernel ticks.
-//! - **[`memory`]**: Physical RAM discovery, PML4 virtual memory page allocation, and kernel heap management.
-//! - **[`scheduler`]**: Multi-queue preemptive process task scheduler, thread state handling, and context switching.
-//! - **[`filesystem`]**: Virtual File System (VFS) layer managing root filesystems (`/`), device nodes (`/dev`), and process entries (`/proc`).
-//! - **[`graphics`]**: Framebuffer resolution control (GOP/VBE), double buffering, and 2D rendering primitives.
-//! - **[`input`]**: PS/2 and USB HID driver abstraction, key scan-code queues, and mouse motion event tracking.
-//! - **[`power`]**: ACPI table parsing, power states (S0-S5), battery status tracking, and reboot/shutdown vector controls.
-//!
-//! ## Usage & Integration with Bootloader (`boot/`)
-//!
-//! ```rust
-//! use lensos_kernel::Kernel;
-//!
-//! fn main() {
-//!     let mut kernel = Kernel::new();
-//!     
-//!     // Initialize all 6 kernel subsystems and print boot diagnostic logs
-//!     if let Err(err) = kernel.initialize() {
-//!         eprintln!("Kernel Panic during boot: {}", err);
-//!         return;
-//!     }
-//!
-//!     // Kernel operational loop tick simulation
-//!     kernel.tick();
-//!
-//!     // Graceful shutdown sequence
-//!     let _ = kernel.shutdown();
-//! }
-//! ```
+//! - [`desktop`]: Main orchestrator, theme palette (`Theme::dark_minimal()`), geometric types, and event dispatch loop.
+//! - [`taskbar`]: Taskbar alignment, pinned launcher items, active window indicators, system clock, and click triggers.
+//! - [`start_menu`]: Application directory index, fuzzy search filtering, category tabs, and recent file access.
+//! - [`wallpaper`]: Background mode manager supporting gradients, solid dark tones, and slideshow transitions.
+//! - [`window_manager`]: Window state stack, z-ordering, layout bounds, resizing, tiling, and focus management.
+//! - [`notifications`]: Toast notifications, urgency routing, Do Not Disturb mode, and sidebar history logging.
+//! - [`widgets`]: Desktop widgets layer featuring clock, system resource metrics, weather, notes, and music player.
 
-pub mod filesystem;
-pub mod graphics;
-pub mod input;
-pub mod kernel;
-pub mod memory;
-pub mod power;
-pub mod scheduler;
+pub mod desktop;
+pub mod notifications;
+pub mod start_menu;
+pub mod taskbar;
+pub mod wallpaper;
+pub mod widgets;
+pub mod window_manager;
 
-// Re-exports for convenience
-pub use filesystem::{FileType, VNode, VirtualFileSystem};
-pub use graphics::{Color, FrameBufferInfo, GraphicsSubsystem, Resolution};
-pub use input::{InputSubsystem, KeyEvent, KeyModifiers, KeyState, MouseEvent};
-pub use kernel::{Kernel, KernelSubsystem};
-pub use memory::{MemoryManager, MemoryRegion, MemoryStats, RegionType};
-pub use power::{PowerManager, PowerSource, PowerState};
-pub use scheduler::{Task, TaskPriority, TaskScheduler, TaskState};
+// Convenience top-level re-exports
+pub use desktop::{Color, Desktop, DesktopConfig, DesktopEvent, Position, Rect, Size, Theme};
+pub use notifications::{
+    Notification, NotificationAction, NotificationCenter, NotificationUrgency,
+};
+pub use start_menu::{AppItem, Category, PowerAction, StartMenu, UserProfile};
+pub use taskbar::{
+    Taskbar, TaskbarAlignment, TaskbarClickAction, TaskbarItem, TaskbarPosition,
+};
+pub use wallpaper::{Wallpaper, WallpaperFit, WallpaperManager, WallpaperMode};
+pub use widgets::{Widget, WidgetManager, WidgetType};
+pub use window_manager::{Window, WindowId, WindowManager, WindowState};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_kernel_lifecycle() {
-        let mut kernel = Kernel::new();
-        assert!(!kernel.is_initialized());
-
-        // Initialize all subsystems
-        let boot_res = kernel.initialize();
-        assert!(boot_res.is_ok());
-        assert!(kernel.is_initialized());
-
-        // Subsystem status checks
-        assert!(kernel.memory.is_initialized());
-        assert!(kernel.scheduler.is_initialized());
-        assert!(kernel.filesystem.is_initialized());
-        assert!(kernel.graphics.is_initialized());
-        assert!(kernel.input.is_initialized());
-        assert!(kernel.power.is_initialized());
-
-        // Test scheduler tick
-        kernel.tick();
-
-        // Graceful shutdown
-        let shutdown_res = kernel.shutdown();
-        assert!(shutdown_res.is_ok());
-        assert!(!kernel.is_initialized());
+    fn test_dark_theme_colors() {
+        let theme = Theme::dark_minimal();
+        assert_eq!(theme.accent, Color::hex(0x2563EB)); // Signature LensOS Blue Accent
+        assert_eq!(theme.background, Color::hex(0x0B0F19)); // Dark Slate Background
     }
 
     #[test]
-    fn test_filesystem_operations() {
-        let mut vfs = VirtualFileSystem::new();
-        assert!(vfs.initialize().is_ok());
+    fn test_desktop_initialization() {
+        let config = DesktopConfig::default();
+        let mut desktop = Desktop::new(config);
 
-        assert!(vfs.write_file("/etc/hostname", b"lensos-box").is_ok());
-        let read_data = vfs.read_file("/etc/hostname");
-        assert!(read_data.is_ok());
-        assert_eq!(read_data.unwrap(), b"lensos-box");
+        assert_eq!(desktop.window_manager.windows.len(), 0);
+        assert!(!desktop.start_menu.is_open());
 
-        assert!(vfs.shutdown().is_ok());
+        // Launch an app
+        let win_id = desktop.launch_app("terminal");
+        assert!(win_id.is_some());
+        assert_eq!(desktop.window_manager.windows.len(), 1);
+    }
+
+    #[test]
+    fn test_window_focus_and_tiling() {
+        let mut wm = WindowManager::new(Size::new(1920.0, 1080.0));
+        let win1 = wm.create_window("Terminal", "terminal", Size::new(800.0, 600.0));
+        let win2 = wm.create_window("Browser", "globe", Size::new(800.0, 600.0));
+
+        assert_eq!(wm.focused_window_id, Some(win2));
+
+        wm.tile_left(win1);
+        assert_eq!(wm.windows[0].state, WindowState::TiledLeft);
+    }
+
+    #[test]
+    fn test_notifications_and_dnd() {
+        let mut nc = NotificationCenter::new();
+        nc.send("Test", "Body", "App", NotificationUrgency::Normal);
+        assert_eq!(nc.unread_count(), 1);
+
+        nc.toggle_dnd();
+        assert!(nc.do_not_disturb);
     }
 }

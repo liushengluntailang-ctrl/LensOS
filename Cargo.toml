@@ -1,10 +1,13 @@
 [package]
-name = "lensos-kernel"
+name = "lensos-desktop"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Architecture Team <dev@lensos.org>"]
-description = "Core modular kernel subsystem for LensOS v0.1 operating system"
+authors = ["LensOS Team <dev@lensos.org>"]
+description = "Modular desktop environment for LensOS featuring a dark minimalist theme and elegant blue accent"
+readme = "README.md"
+keywords = ["lensos", "desktop", "window-manager", "dark-theme"]
+categories = ["gui"]
 
 [dependencies]
-# LensOS kernel core operates with no external crate dependencies
-# for maximum reliability and clean modular abstraction.
+# Standard library based core architecture. Zero mandatory external dependencies
+# for rustc compatibility and self-contained modular compiling.
