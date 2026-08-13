@@ -1,8 +1,10 @@
 [package]
-name = "lensos-boot"
+name = "lensos-kernel"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Kernel Core Team"]
-description = "Boot module for the LensOS v0.1 operating system"
+authors = ["LensOS Architecture Team <dev@lensos.org>"]
+description = "Core modular kernel subsystem for LensOS v0.1 operating system"
 
 [dependencies]
+# LensOS kernel core operates with no external crate dependencies
+# for maximum reliability and clean modular abstraction.
