@@ -1,81 +1,70 @@
-//! # LensOS UI System
+//! # LensOS v0.1 Installer Module (`installer`)
 //!
-//! LensOS UI is a pure Rust, high-performance, modular frosted glass design system
-//! and desktop environment module crafted for LensOS.
+//! ## Architectural Overview
+//! The `installer` crate serves as the core package management, application lifecycle,
+//! add-on orchestration, system recovery, repair, and USB installation media provisioning engine
+//! for **LensOS v0.1**.
 //!
-//! ## Architecture
-//! - **colors**: RGBA channels, color palettes, dark obsidian theme tokens, WCAG contrast.
-//! - **typography**: Font weights, scales, layout engine, line wrapping.
-//! - **glass**: Real-time translucent frosted glass physics, blur matrix kernels, specular highlights.
-//! - **theme**: Theme modes, design tokens, spacing grid, elevation shadows, ThemeManager.
-//! - **icons**: System vector icon paths, styling, scaling, and rendering primitives.
-//! - **buttons**: Primary, secondary, ghost, frosted glass, icon buttons, states, and builders.
-//! - **windows**: Desktop windows, headers, snapping, z-index elevation, and WindowManager.
-//! - **taskbar**: Dock launcher, system tray indicators, app shortcuts, and active task tracking.
-//! - **animations**: Easing curves, spring physics solvers, dynamic value transitions, timeline controller.
+//! ### Integration with LensOS Subsystems
+//! The installer interacts directly with key system modules:
+//! - **boot**: Handles bootloader entry registration for installer & recovery modes.
+//! - **kernel**: Registers system drivers, kernel modules, and sandbox security policies.
+//! - **desktop**: Updates desktop app shortcuts, launcher menus, and window manager bindings.
+//! - **ui**: Streams installation progress events, modal notifications, and theme changes.
+//! - **system**: Manages system services, daemon hooks, and resource allocation.
+//! - **files**: Manages `/apps`, `/addons`, `/themes`, and `/recovery` filesystem paths.
+//! - **settings**: Synchronizes localized language packs, active desktop themes, and store preferences.
+//! - **browser**: Integrates browser extensions and web application manifests.
+//! - **lens_ai**: Coordinates AI model add-ons, agent tools, and smart capability plugins.
+//!
+//! ### Submodule Matrix
+//! - [`package`]: `.lens` package definitions, binary manifests, dependencies, and payloads.
+//! - [`installer`]: `InstallerManager` core orchestrator controlling installation workflows.
+//! - [`addons`]: Standalone and application-tied add-on management (plugins, AI tools, widgets).
+//! - [`themes`]: LensOS theme installation, styling attributes, and visual assets.
+//! - [`language_packs`]: Localization, translations, IME support, and font bindings.
+//! - [`usb`]: Bootable USB installer media creation, formatting, and disk flashing.
+//! - [`recovery`]: Point-in-time system snapshot creation and disaster recovery restoration.
+//! - [`repair`]: System file integrity scanning, dependency fixing, and component repairs.
+//! - [`verification`]: Cryptographic signature validation, SHA-256 integrity, and sandbox policy checks.
+//! - [`progress`]: Real-time task progress tracking, stage notifications, and UI callbacks.
+//! - [`integration`]: Direct integration with Lens Store and LensOS kernel/desktop service bridges.
 
-pub mod animations;
-pub mod buttons;
-pub mod colors;
-pub mod glass;
-pub mod icons;
-pub mod taskbar;
-pub mod theme;
-pub mod typography;
-pub mod windows;
+pub mod addons;
+pub mod installer;
+pub mod integration;
+pub mod language_packs;
+pub mod package;
+pub mod progress;
+pub mod recovery;
+pub mod repair;
+pub mod themes;
+pub mod usb;
+pub mod verification;
 
-/// Convenient prelude re-exporting core LensOS UI traits, structs, and tokens.
-pub mod prelude {
-    pub use crate::animations::{AnimationController, AnimationState, Easing, Transition};
-    pub use crate::buttons::{Button, ButtonBuilder, ButtonSize, ButtonState, ButtonVariant};
-    pub use crate::colors::{Color, ColorPalette};
-    pub use crate::glass::{BlurKernel, GlassBlurAlgorithm, GlassLayer, GlassMaterial};
-    pub use crate::icons::{Icon, IconSize, IconStyle, IconType, VectorCommand, VectorPath};
-    pub use crate::taskbar::{SystemTray, Taskbar, TaskbarItem, TaskbarItemKind, TaskbarPosition};
-    pub use crate::theme::{CornerRadiusScale, ElevationScale, SpacingScale, Theme, ThemeManager, ThemeMode};
-    pub use crate::typography::{FontWeight, TypographyScale, TypographyStyle};
-    pub use crate::windows::{Point, Rect, Size, Window, WindowFlags, WindowManager, WindowSnapPosition, WindowState};
-}
+// Re-exports for convenient top-level access
+pub use addons::{Addon, AddonCategory, AddonInfo, AddonManager, AddonStatus};
+pub use installer::{InstallerConfig, InstallerError, InstallerManager};
+pub use integration::{LensStoreIntegration, StorePackageInfo, SubsystemBridges};
+pub use language_packs::{LanguagePack, LanguagePackInfo, LanguagePackManager, LocaleInfo};
+pub use package::{LensPackage, PackageManifest, PackageState, PackageType};
+pub use progress::{ProgressStage, ProgressState, ProgressTracker, TaskStatus};
+pub use recovery::{RecoveryEngine, RecoveryReport, RecoverySnapshot, RecoverySnapshotInfo};
+pub use repair::{RepairEngine, RepairFlags, RepairReport, SystemIntegrityReport};
+pub use themes::{LensTheme, LensThemeInfo, ThemeManager};
+pub use usb::{UsbDriveInfo, UsbMediaWriter, UsbOperationResult};
+pub use verification::{
+    CompatibilityResult, PackageVerificationEngine, SecurityResult, VerificationReport,
+};
 
-use prelude::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Unified Master LensOS UI Context coordinating active desktop components.
-#[derive(Debug)]
-pub struct LensUiContext {
-    pub theme_manager: ThemeManager,
-    pub window_manager: WindowManager,
-    pub taskbar: Taskbar,
-    pub animation_controller: AnimationController,
-    pub viewport: Rect,
-}
-
-impl LensUiContext {
-    /// Initializes a new LensOS UI desktop engine instance.
-    pub fn new(viewport_width: f32, viewport_height: f32) -> Self {
-        let mut window_manager = WindowManager::new();
-
-        // Seed initial system windows
-        let w1 = window_manager.create_window("System Monitor", 640.0, 420.0);
-        let w2 = window_manager.create_window("Terminal", 580.0, 360.0);
-        window_manager.focus_window(w2);
-        let _ = w1;
-
-        Self {
-            theme_manager: ThemeManager::new(),
-            window_manager,
-            taskbar: Taskbar::new(),
-            animation_controller: AnimationController::new(),
-            viewport: Rect::new(0.0, 0.0, viewport_width, viewport_height),
-        }
-    }
-
-    /// Advances desktop timeline by delta time `dt_secs`.
-    pub fn tick(&mut self, dt_secs: f32) {
-        self.animation_controller.tick_all(dt_secs);
-    }
-
-    /// Resizes OS desktop viewport layout.
-    pub fn resize_viewport(&mut self, width: f32, height: f32) {
-        self.viewport = Rect::new(0.0, 0.0, width, height);
+    #[test]
+    fn test_installer_crate_initialization() {
+        let config = InstallerConfig::default();
+        let manager = InstallerManager::new(config);
+        assert!(!manager.is_busy());
     }
 }
