@@ -1,82 +1,81 @@
-//! LensOS Desktop Environment Module
+//! # LensOS UI System
 //!
-//! A modular, dark minimalist desktop system with an elegant blue accent theme.
+//! LensOS UI is a pure Rust, high-performance, modular frosted glass design system
+//! and desktop environment module crafted for LensOS.
 //!
-//! # Architecture
-//!
-//! - [`desktop`]: Main orchestrator, theme palette (`Theme::dark_minimal()`), geometric types, and event dispatch loop.
-//! - [`taskbar`]: Taskbar alignment, pinned launcher items, active window indicators, system clock, and click triggers.
-//! - [`start_menu`]: Application directory index, fuzzy search filtering, category tabs, and recent file access.
-//! - [`wallpaper`]: Background mode manager supporting gradients, solid dark tones, and slideshow transitions.
-//! - [`window_manager`]: Window state stack, z-ordering, layout bounds, resizing, tiling, and focus management.
-//! - [`notifications`]: Toast notifications, urgency routing, Do Not Disturb mode, and sidebar history logging.
-//! - [`widgets`]: Desktop widgets layer featuring clock, system resource metrics, weather, notes, and music player.
+//! ## Architecture
+//! - **colors**: RGBA channels, color palettes, dark obsidian theme tokens, WCAG contrast.
+//! - **typography**: Font weights, scales, layout engine, line wrapping.
+//! - **glass**: Real-time translucent frosted glass physics, blur matrix kernels, specular highlights.
+//! - **theme**: Theme modes, design tokens, spacing grid, elevation shadows, ThemeManager.
+//! - **icons**: System vector icon paths, styling, scaling, and rendering primitives.
+//! - **buttons**: Primary, secondary, ghost, frosted glass, icon buttons, states, and builders.
+//! - **windows**: Desktop windows, headers, snapping, z-index elevation, and WindowManager.
+//! - **taskbar**: Dock launcher, system tray indicators, app shortcuts, and active task tracking.
+//! - **animations**: Easing curves, spring physics solvers, dynamic value transitions, timeline controller.
 
-pub mod desktop;
-pub mod notifications;
-pub mod start_menu;
+pub mod animations;
+pub mod buttons;
+pub mod colors;
+pub mod glass;
+pub mod icons;
 pub mod taskbar;
-pub mod wallpaper;
-pub mod widgets;
-pub mod window_manager;
+pub mod theme;
+pub mod typography;
+pub mod windows;
 
-// Convenience top-level re-exports
-pub use desktop::{Color, Desktop, DesktopConfig, DesktopEvent, Position, Rect, Size, Theme};
-pub use notifications::{
-    Notification, NotificationAction, NotificationCenter, NotificationUrgency,
-};
-pub use start_menu::{AppItem, Category, PowerAction, StartMenu, UserProfile};
-pub use taskbar::{
-    Taskbar, TaskbarAlignment, TaskbarClickAction, TaskbarItem, TaskbarPosition,
-};
-pub use wallpaper::{Wallpaper, WallpaperFit, WallpaperManager, WallpaperMode};
-pub use widgets::{Widget, WidgetManager, WidgetType};
-pub use window_manager::{Window, WindowId, WindowManager, WindowState};
+/// Convenient prelude re-exporting core LensOS UI traits, structs, and tokens.
+pub mod prelude {
+    pub use crate::animations::{AnimationController, AnimationState, Easing, Transition};
+    pub use crate::buttons::{Button, ButtonBuilder, ButtonSize, ButtonState, ButtonVariant};
+    pub use crate::colors::{Color, ColorPalette};
+    pub use crate::glass::{BlurKernel, GlassBlurAlgorithm, GlassLayer, GlassMaterial};
+    pub use crate::icons::{Icon, IconSize, IconStyle, IconType, VectorCommand, VectorPath};
+    pub use crate::taskbar::{SystemTray, Taskbar, TaskbarItem, TaskbarItemKind, TaskbarPosition};
+    pub use crate::theme::{CornerRadiusScale, ElevationScale, SpacingScale, Theme, ThemeManager, ThemeMode};
+    pub use crate::typography::{FontWeight, TypographyScale, TypographyStyle};
+    pub use crate::windows::{Point, Rect, Size, Window, WindowFlags, WindowManager, WindowSnapPosition, WindowState};
+}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use prelude::*;
 
-    #[test]
-    fn test_dark_theme_colors() {
-        let theme = Theme::dark_minimal();
-        assert_eq!(theme.accent, Color::hex(0x2563EB)); // Signature LensOS Blue Accent
-        assert_eq!(theme.background, Color::hex(0x0B0F19)); // Dark Slate Background
+/// Unified Master LensOS UI Context coordinating active desktop components.
+#[derive(Debug)]
+pub struct LensUiContext {
+    pub theme_manager: ThemeManager,
+    pub window_manager: WindowManager,
+    pub taskbar: Taskbar,
+    pub animation_controller: AnimationController,
+    pub viewport: Rect,
+}
+
+impl LensUiContext {
+    /// Initializes a new LensOS UI desktop engine instance.
+    pub fn new(viewport_width: f32, viewport_height: f32) -> Self {
+        let mut window_manager = WindowManager::new();
+
+        // Seed initial system windows
+        let w1 = window_manager.create_window("System Monitor", 640.0, 420.0);
+        let w2 = window_manager.create_window("Terminal", 580.0, 360.0);
+        window_manager.focus_window(w2);
+        let _ = w1;
+
+        Self {
+            theme_manager: ThemeManager::new(),
+            window_manager,
+            taskbar: Taskbar::new(),
+            animation_controller: AnimationController::new(),
+            viewport: Rect::new(0.0, 0.0, viewport_width, viewport_height),
+        }
     }
 
-    #[test]
-    fn test_desktop_initialization() {
-        let config = DesktopConfig::default();
-        let mut desktop = Desktop::new(config);
-
-        assert_eq!(desktop.window_manager.windows.len(), 0);
-        assert!(!desktop.start_menu.is_open());
-
-        // Launch an app
-        let win_id = desktop.launch_app("terminal");
-        assert!(win_id.is_some());
-        assert_eq!(desktop.window_manager.windows.len(), 1);
+    /// Advances desktop timeline by delta time `dt_secs`.
+    pub fn tick(&mut self, dt_secs: f32) {
+        self.animation_controller.tick_all(dt_secs);
     }
 
-    #[test]
-    fn test_window_focus_and_tiling() {
-        let mut wm = WindowManager::new(Size::new(1920.0, 1080.0));
-        let win1 = wm.create_window("Terminal", "terminal", Size::new(800.0, 600.0));
-        let win2 = wm.create_window("Browser", "globe", Size::new(800.0, 600.0));
-
-        assert_eq!(wm.focused_window_id, Some(win2));
-
-        wm.tile_left(win1);
-        assert_eq!(wm.windows[0].state, WindowState::TiledLeft);
-    }
-
-    #[test]
-    fn test_notifications_and_dnd() {
-        let mut nc = NotificationCenter::new();
-        nc.send("Test", "Body", "App", NotificationUrgency::Normal);
-        assert_eq!(nc.unread_count(), 1);
-
-        nc.toggle_dnd();
-        assert!(nc.do_not_disturb);
+    /// Resizes OS desktop viewport layout.
+    pub fn resize_viewport(&mut self, width: f32, height: f32) {
+        self.viewport = Rect::new(0.0, 0.0, width, height);
     }
 }

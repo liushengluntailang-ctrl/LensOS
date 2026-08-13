@@ -1,13 +1,9 @@
 [package]
-name = "lensos-desktop"
+name = "lensos-ui"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Team <dev@lensos.org>"]
-description = "Modular desktop environment for LensOS featuring a dark minimalist theme and elegant blue accent"
-readme = "README.md"
-keywords = ["lensos", "desktop", "window-manager", "dark-theme"]
-categories = ["gui"]
+authors = ["LensOS Architecture Team <dev@lensos.org>"]
+description = "Pure Rust Frosted Glass design system and UI component module for LensOS."
 
 [dependencies]
-# Standard library based core architecture. Zero mandatory external dependencies
-# for rustc compatibility and self-contained modular compiling.
+# Standard zero-dependency pure Rust crate for maximum performance and portability
