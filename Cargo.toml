@@ -1,10 +1,8 @@
 [package]
-name = "lensos-system"
+name = "lensos-boot"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Architecture Team <system@lensos.org>"]
-description = "LensOS v0.1 Core System Module - User management, power states, AI key launcher, sessions, permissions, updates, and system notifications."
+authors = ["LensOS Kernel Core Team"]
+description = "Boot module for the LensOS v0.1 operating system"
 
 [dependencies]
-# Pure Rust standard library implementation with zero external runtime dependencies
-# ensuring seamless execution across LensOS microkernel and bare-metal targets.
