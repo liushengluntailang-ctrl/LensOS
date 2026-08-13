@@ -1,11 +1,12 @@
 [package]
-name = "lensos-installer"
+name = "lensos_integration"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Architecture Team <engineering@lensos.org>"]
-description = "Installer, package manager, and system recovery engine for LensOS v0.1"
+authors = ["LensOS Kernel Team <engineering@lensos.org>"]
+description = "LensOS v0.1 Integration Module providing GitHub authentication, repository management, file system bridging, and Lens AI integration."
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
+chrono = { version = "0.4", features = ["serde"] }
