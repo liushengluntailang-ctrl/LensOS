@@ -1,0 +1,10 @@
+[package]
+name = "lensos-system"
+version = "0.1.0"
+edition = "2021"
+authors = ["LensOS Architecture Team <system@lensos.org>"]
+description = "LensOS v0.1 Core System Module - User management, power states, AI key launcher, sessions, permissions, updates, and system notifications."
+
+[dependencies]
+# Pure Rust standard library implementation with zero external runtime dependencies
+# ensuring seamless execution across LensOS microkernel and bare-metal targets.
