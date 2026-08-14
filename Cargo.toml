@@ -1,9 +1,10 @@
 [package]
-name = "lensos-files"
+name = "lensos-settings"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Team"]
-description = "LensOS v0.1 Files Application Module"
+authors = ["LensOS Team <dev@lensos.org>"]
+description = "Modular Rust settings application for LensOS with frosted glass aesthetics, kernel IPC, and AI integration."
 
 [dependencies]
-# Standard library is used for maximum performance, security, and portability in LensOS.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

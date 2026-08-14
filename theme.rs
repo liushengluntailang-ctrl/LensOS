@@ -1,203 +1,169 @@
-//! LensOS Theme Management Engine
-//!
-//! Controls global design tokens, spacing scales, corner radii, elevation depth,
-//! theme switching, and WCAG accessibility validation.
+use serde::{Deserialize, Serialize};
 
-use crate::colors::{Color, ColorPalette};
-use crate::glass::GlassMaterial;
-use crate::typography::TypographyScale;
-
-/// Distinct visual theme modes supported natively by LensOS.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ThemeMode {
-    SophisticatedDark,
-    DarkObsidian,
-    MidnightNeon,
-    CyberGlass,
-    Custom(String),
-}
-
-/// Standardized corner radius tokens.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CornerRadiusScale {
-    pub xs: f32,
-    pub sm: f32,
-    pub md: f32,
-    pub lg: f32,
-    pub xl: f32,
-    pub full: f32,
-}
-
-impl Default for CornerRadiusScale {
-    fn default() -> Self {
-        Self {
-            xs: 4.0,
-            sm: 8.0,
-            md: 12.0,
-            lg: 16.0,
-            xl: 24.0,
-            full: 9999.0,
-        }
-    }
-}
-
-/// Standardized layout spacing tokens (8pt spatial grid).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SpacingScale {
-    pub xxs: f32,
-    pub xs: f32,
-    pub sm: f32,
-    pub md: f32,
-    pub lg: f32,
-    pub xl: f32,
-    pub xxl: f32,
-}
-
-impl Default for SpacingScale {
-    fn default() -> Self {
-        Self {
-            xxs: 2.0,
-            xs: 4.0,
-            sm: 8.0,
-            md: 16.0,
-            lg: 24.0,
-            xl: 32.0,
-            xxl: 48.0,
-        }
-    }
-}
-
-/// Glass Z-axis elevation levels specifying drop shadow intensities.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ElevationScale {
-    pub level_0_flat: GlassMaterial,
-    pub level_1_card: GlassMaterial,
-    pub level_2_window: GlassMaterial,
-    pub level_3_popover: GlassMaterial,
-    pub level_4_modal: GlassMaterial,
-}
-
-impl Default for ElevationScale {
-    fn default() -> Self {
-        Self {
-            level_0_flat: GlassMaterial::frosted_crystal(),
-            level_1_card: GlassMaterial::frosted_crystal(),
-            level_2_window: GlassMaterial::deep_acrylic(),
-            level_3_popover: GlassMaterial::luminous_popover(),
-            level_4_modal: {
-                let mut mat = GlassMaterial::deep_acrylic();
-                mat.shadow_blur = 64.0;
-                mat.shadow_offset_y = 24.0;
-                mat.shadow_color = Color::rgba(0.0, 0.0, 0.0, 0.80);
-                mat
-            },
-        }
-    }
-}
-
-/// Master Theme holding all active OS design tokens.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Theme {
+    pub id: String,
     pub name: String,
-    pub mode: ThemeMode,
-    pub palette: ColorPalette,
-    pub typography: TypographyScale,
-    pub radii: CornerRadiusScale,
-    pub spacing: SpacingScale,
-    pub elevation: ElevationScale,
+    pub description: String,
+    pub author: String,
+    pub is_built_in: bool,
+    pub primary_accent: String,
+    pub secondary_accent: String,
+    pub background_dark: String,
+    pub card_glass_background: String,
+    pub card_glass_opacity: f32,
+    pub card_border_color: String,
+    pub text_primary: String,
+    pub text_secondary: String,
+    pub text_muted: String,
 }
 
 impl Theme {
-    /// Creates the flagship LensOS Sophisticated Dark theme instance.
-    pub fn sophisticated_dark() -> Self {
-        let palette = ColorPalette::sophisticated_dark();
-        let typography = TypographyScale::default_scale(palette.text_primary, palette.text_secondary);
-
+    pub fn lensos_dark_default() -> Self {
         Self {
-            name: "LensOS Sophisticated Dark".to_string(),
-            mode: ThemeMode::SophisticatedDark,
-            palette,
-            typography,
-            radii: CornerRadiusScale::default(),
-            spacing: SpacingScale::default(),
-            elevation: ElevationScale::default(),
+            id: "lensos_dark".to_string(),
+            name: "LensOS Frosted Dark".to_string(),
+            description: "Default LensOS dark theme with deep obsidian glass and cyan accents"
+                .to_string(),
+            author: "LensOS Core Team".to_string(),
+            is_built_in: true,
+            primary_accent: "#00B4D8".to_string(),
+            secondary_accent: "#7209B7".to_string(),
+            background_dark: "#0F111A".to_string(),
+            card_glass_background: "rgba(255, 255, 255, 0.06)".to_string(),
+            card_glass_opacity: 0.12,
+            card_border_color: "rgba(255, 255, 255, 0.12)".to_string(),
+            text_primary: "#F8FAFC".to_string(),
+            text_secondary: "#94A3B8".to_string(),
+            text_muted: "#64748B".to_string(),
         }
     }
 
-    /// Creates the flagship LensOS Dark Obsidian theme instance.
-    pub fn dark_obsidian() -> Self {
-        Self::sophisticated_dark()
-    }
-
-    /// Creates the Cyber Glass theme instance.
-    pub fn cyber_glass() -> Self {
-        let palette = ColorPalette::cyber_glass();
-        let typography = TypographyScale::default_scale(palette.text_primary, palette.text_secondary);
-
+    pub fn lensos_cyber_neon() -> Self {
         Self {
-            name: "Cyber Glass".to_string(),
-            mode: ThemeMode::CyberGlass,
-            palette,
-            typography,
-            radii: CornerRadiusScale::default(),
-            spacing: SpacingScale::default(),
-            elevation: ElevationScale::default(),
+            id: "lensos_cyber".to_string(),
+            name: "Cyber Neon Glass".to_string(),
+            description: "High-contrast theme with vivid electric purple and magenta accents"
+                .to_string(),
+            author: "LensOS Core Team".to_string(),
+            is_built_in: true,
+            primary_accent: "#F72585".to_string(),
+            secondary_accent: "#4CC9F0".to_string(),
+            background_dark: "#080711".to_string(),
+            card_glass_background: "rgba(247, 37, 133, 0.08)".to_string(),
+            card_glass_opacity: 0.15,
+            card_border_color: "rgba(247, 37, 133, 0.25)".to_string(),
+            text_primary: "#FFFFFF".to_string(),
+            text_secondary: "#E2E8F0".to_string(),
+            text_muted: "#A0AEC0".to_string(),
         }
     }
 
-    /// Validates that text colors meet minimum WCAG AA contrast ratio (4.5:1).
-    pub fn validate_accessibility(&self) -> bool {
-        let text = self.palette.text_primary;
-        let bg = self.palette.surface_background;
-        text.wcag_contrast_ratio(&bg) >= 4.5
+    pub fn frosted_light() -> Self {
+        Self {
+            id: "frosted_light".to_string(),
+            name: "Frosted Light".to_string(),
+            description: "Clean, high-legibility light mode with soft glass shadows".to_string(),
+            author: "LensOS Core Team".to_string(),
+            is_built_in: true,
+            primary_accent: "#0284C7".to_string(),
+            secondary_accent: "#4F46E5".to_string(),
+            background_dark: "#F8FAFC".to_string(),
+            card_glass_background: "rgba(255, 255, 255, 0.75)".to_string(),
+            card_glass_opacity: 0.85,
+            card_border_color: "rgba(0, 0, 0, 0.08)".to_string(),
+            text_primary: "#0F172A".to_string(),
+            text_secondary: "#475569".to_string(),
+            text_muted: "#94A3B8".to_string(),
+        }
     }
 }
 
-/// Global Theme Manager coordinating active runtime themes and dynamic switching.
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ThemeManager {
-    active_theme: Theme,
-    custom_themes: Vec<Theme>,
-}
-
-impl ThemeManager {
-    pub fn new() -> Self {
-        Self {
-            active_theme: Theme::dark_obsidian(),
-            custom_themes: Vec::new(),
-        }
-    }
-
-    pub fn active_theme(&self) -> &Theme {
-        &self.active_theme
-    }
-
-    pub fn active_theme_mut(&mut self) -> &mut Theme {
-        &mut self.active_theme
-    }
-
-    pub fn set_mode(&mut self, mode: ThemeMode) {
-        self.active_theme = match mode {
-            ThemeMode::SophisticatedDark | ThemeMode::DarkObsidian | ThemeMode::MidnightNeon => {
-                Theme::sophisticated_dark()
-            }
-            ThemeMode::CyberGlass => Theme::cyber_glass(),
-            ThemeMode::Custom(ref name) => self
-                .custom_themes
-                .iter()
-                .find(|t| &t.name == name)
-                .cloned()
-                .unwrap_or_else(Theme::sophisticated_dark),
-        };
-    }
-
-    pub fn register_custom_theme(&mut self, theme: Theme) {
-        self.custom_themes.push(theme);
-    }
+    pub active_theme_id: String,
+    pub available_themes: Vec<Theme>,
 }
 
 impl Default for ThemeManager {
     fn default() -> Self {
-        Self::new()
+        let default_theme = Theme::lensos_dark_default();
+        let cyber_theme = Theme::lensos_cyber_neon();
+        let light_theme = Theme::frosted_light();
+
+        Self {
+            active_theme_id: default_theme.id.clone(),
+            available_themes: vec![default_theme, cyber_theme, light_theme],
+        }
+    }
+}
+
+impl ThemeManager {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_active_theme(&self) -> &Theme {
+        self.available_themes
+            .iter()
+            .find(|t| t.id == self.active_theme_id)
+            .unwrap_or_else(|| &self.available_themes[0])
+    }
+
+    pub fn set_active_theme(&mut self, theme_id: &str) -> Result<&Theme, String> {
+        if self.available_themes.iter().any(|t| t.id == theme_id) {
+            self.active_theme_id = theme_id.to_string();
+            Ok(self.get_active_theme())
+        } else {
+            Err(format!("Theme ID '{}' not found", theme_id))
+        }
+    }
+
+    pub fn add_custom_theme(&mut self, theme: Theme) {
+        if let Some(pos) = self.available_themes.iter().position(|t| t.id == theme.id) {
+            self.available_themes[pos] = theme;
+        } else {
+            self.available_themes.push(theme);
+        }
+    }
+
+    pub fn delete_custom_theme(&mut self, theme_id: &str) -> Result<(), String> {
+        if let Some(pos) = self.available_themes.iter().position(|t| t.id == theme_id) {
+            if self.available_themes[pos].is_built_in {
+                return Err("Cannot delete built-in LensOS themes".to_string());
+            }
+            self.available_themes.remove(pos);
+            if self.active_theme_id == theme_id {
+                self.active_theme_id = "lensos_dark".to_string();
+            }
+            Ok(())
+        } else {
+            Err(format!("Theme '{}' not found", theme_id))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_theme_manager_defaults() {
+        let tm = ThemeManager::default();
+        assert_eq!(tm.active_theme_id, "lensos_dark");
+        assert_eq!(tm.get_active_theme().name, "LensOS Frosted Dark");
+    }
+
+    #[test]
+    fn test_set_active_theme() {
+        let mut tm = ThemeManager::default();
+        assert!(tm.set_active_theme("lensos_cyber").is_ok());
+        assert_eq!(tm.get_active_theme().id, "lensos_cyber");
+    }
+
+    #[test]
+    fn test_cannot_delete_builtin_theme() {
+        let mut tm = ThemeManager::default();
+        assert!(tm.delete_custom_theme("lensos_dark").is_err());
     }
 }

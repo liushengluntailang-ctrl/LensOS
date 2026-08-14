@@ -1,180 +1,150 @@
-//! Wallpaper management module for LensOS.
-//!
-//! Handles background rendering modes (solid colors, dark minimalist gradients, custom image files),
-//! aspect fitting modes, dark overlay tinting for icon legibility, and slideshow updates.
+use serde::{Deserialize, Serialize};
 
-use crate::desktop::Color;
-
-/// Aspect ratio scaling behavior for image wallpapers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WallpaperFit {
-    Cover,
-    Contain,
+    Fill,
+    Fit,
     Stretch,
     Center,
     Tile,
+    Span,
 }
 
-/// Rendering style mode for desktop wallpaper.
-#[derive(Debug, Clone, PartialEq)]
-pub enum WallpaperMode {
-    SolidColor(Color),
-    LinearGradient {
-        start_color: Color,
-        end_color: Color,
-        angle_degrees: f32,
-    },
-    Image {
-        file_path: String,
-        fit: WallpaperFit,
-    },
-    DynamicTimeBased {
-        day_color: Color,
-        night_color: Color,
-    },
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WallpaperItem {
+    pub id: String,
+    pub title: String,
+    pub file_path: String,
+    pub thumbnail_path: String,
+    pub is_dynamic: bool,
+    pub is_ai_generated: bool,
+    pub category: String,
 }
 
-/// Wallpaper configuration parameters.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Wallpaper {
-    pub mode: WallpaperMode,
-    pub blur_radius: f32,
-    pub dim_opacity: f32, // Dark tint overlay (0.0 - 1.0) for high contrast text
-}
-
-impl Wallpaper {
-    /// Creates a default LensOS signature dark gradient wallpaper.
-    pub fn dark_minimal_gradient() -> Self {
-        Self {
-            mode: WallpaperMode::LinearGradient {
-                start_color: Color::hex(0x0B0F19), // Deep slate black
-                end_color: Color::hex(0x111827),   // Subtle deep dark blue-slate
-                angle_degrees: 135.0,
-            },
-            blur_radius: 0.0,
-            dim_opacity: 0.1,
-        }
-    }
-
-    /// Creates a solid color wallpaper.
-    pub fn solid(color: Color) -> Self {
-        Self {
-            mode: WallpaperMode::SolidColor(color),
-            blur_radius: 0.0,
-            dim_opacity: 0.0,
-        }
-    }
-
-    /// Creates an image wallpaper with custom scaling.
-    pub fn image(path: &str, fit: WallpaperFit) -> Self {
-        Self {
-            mode: WallpaperMode::Image {
-                file_path: path.to_string(),
-                fit,
-            },
-            blur_radius: 0.0,
-            dim_opacity: 0.15,
-        }
-    }
-}
-
-impl Default for Wallpaper {
-    fn default() -> Self {
-        Self::dark_minimal_gradient()
-    }
-}
-
-/// Wallpaper Manager system handling wallpaper switching, slideshows, and dynamic tinting.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WallpaperManager {
-    pub current_wallpaper: Wallpaper,
-    pub fallback_color: Color,
-    pub slideshow_files: Vec<String>,
-    pub slideshow_interval_secs: f32,
-    pub slideshow_timer_secs: f32,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WallpaperSettings {
+    pub current_wallpaper_id: String,
+    pub current_path: String,
+    pub fit_mode: WallpaperFit,
     pub slideshow_enabled: bool,
-    pub current_slideshow_index: usize,
+    pub slideshow_interval_secs: u64,
+    pub slideshow_folder: Option<String>,
+    pub blur_overlay: f32, // 0.0 = crisp, 1.0 = heavy blur for focus
+    pub dim_in_dark_mode: bool,
+    pub dim_level: f32, // 0.0 to 1.0
+    pub ai_prompt: Option<String>,
+    pub presets: Vec<WallpaperItem>,
 }
 
-impl WallpaperManager {
-    /// Constructs a WallpaperManager with default dark gradient.
-    pub fn new() -> Self {
-        Self {
-            current_wallpaper: Wallpaper::dark_minimal_gradient(),
-            fallback_color: Color::hex(0x0B0F19),
-            slideshow_files: Vec::new(),
-            slideshow_interval_secs: 300.0, // 5 minutes default
-            slideshow_timer_secs: 0.0,
-            slideshow_enabled: false,
-            current_slideshow_index: 0,
-        }
-    }
-
-    /// Constructs a WallpaperManager with specific gradient colors.
-    pub fn new_gradient(start: Color, end: Color) -> Self {
-        let mut mgr = Self::new();
-        mgr.current_wallpaper = Wallpaper {
-            mode: WallpaperMode::LinearGradient {
-                start_color: start,
-                end_color: end,
-                angle_degrees: 135.0,
-            },
-            blur_radius: 0.0,
-            dim_opacity: 0.1,
-        };
-        mgr
-    }
-
-    /// Sets the active wallpaper.
-    pub fn set_wallpaper(&mut self, wallpaper: Wallpaper) {
-        self.current_wallpaper = wallpaper;
-    }
-
-    /// Sets wallpaper to a image file path.
-    pub fn set_image(&mut self, path: &str, fit: WallpaperFit) {
-        self.set_wallpaper(Wallpaper::image(path, fit));
-    }
-
-    /// Adjusts the dark dimming overlay opacity (0.0 - 1.0).
-    pub fn set_dim_opacity(&mut self, opacity: f32) {
-        self.current_wallpaper.dim_opacity = opacity.clamp(0.0, 1.0);
-    }
-
-    /// Enables background wallpaper slideshow mode.
-    pub fn enable_slideshow(&mut self, files: Vec<String>, interval_secs: f32) {
-        if !files.is_empty() {
-            self.slideshow_files = files;
-            self.slideshow_interval_secs = interval_secs;
-            self.slideshow_timer_secs = 0.0;
-            self.slideshow_enabled = true;
-            self.current_slideshow_index = 0;
-            self.load_current_slideshow_image();
-        }
-    }
-
-    /// Loads image at current slideshow index.
-    fn load_current_slideshow_image(&mut self) {
-        if let Some(path) = self.slideshow_files.get(self.current_slideshow_index).cloned() {
-            self.set_image(&path, WallpaperFit::Cover);
-        }
-    }
-
-    /// Clock tick update to progress slideshow or dynamic time calculations.
-    pub fn update(&mut self, delta_time_secs: f32) {
-        if self.slideshow_enabled && !self.slideshow_files.is_empty() {
-            self.slideshow_timer_secs += delta_time_secs;
-            if self.slideshow_timer_secs >= self.slideshow_interval_secs {
-                self.slideshow_timer_secs = 0.0;
-                self.current_slideshow_index =
-                    (self.current_slideshow_index + 1) % self.slideshow_files.len();
-                self.load_current_slideshow_image();
-            }
-        }
-    }
-}
-
-impl Default for WallpaperManager {
+impl Default for WallpaperSettings {
     fn default() -> Self {
-        Self::new()
+        let presets = vec![
+            WallpaperItem {
+                id: "lens_aurora".to_string(),
+                title: "LensOS Frosted Aurora".to_string(),
+                file_path: "/system/wallpapers/frosted_aurora.png".to_string(),
+                thumbnail_path: "/system/wallpapers/thumbs/frosted_aurora.png".to_string(),
+                is_dynamic: true,
+                is_ai_generated: false,
+                category: "LensOS Minimal".to_string(),
+            },
+            WallpaperItem {
+                id: "cyber_mesh".to_string(),
+                title: "Cyber Gradient Mesh".to_string(),
+                file_path: "/system/wallpapers/cyber_mesh.png".to_string(),
+                thumbnail_path: "/system/wallpapers/thumbs/cyber_mesh.png".to_string(),
+                is_dynamic: false,
+                is_ai_generated: true,
+                category: "AI Abstract".to_string(),
+            },
+            WallpaperItem {
+                id: "glass_nebula".to_string(),
+                title: "Glass Nebula Deep Dark".to_string(),
+                file_path: "/system/wallpapers/glass_nebula.png".to_string(),
+                thumbnail_path: "/system/wallpapers/thumbs/glass_nebula.png".to_string(),
+                is_dynamic: true,
+                is_ai_generated: false,
+                category: "Space".to_string(),
+            },
+        ];
+
+        Self {
+            current_wallpaper_id: "lens_aurora".to_string(),
+            current_path: "/system/wallpapers/frosted_aurora.png".to_string(),
+            fit_mode: WallpaperFit::Fill,
+            slideshow_enabled: false,
+            slideshow_interval_secs: 1800, // 30 minutes
+            slideshow_folder: None,
+            blur_overlay: 0.1,
+            dim_in_dark_mode: true,
+            dim_level: 0.2,
+            ai_prompt: Some("Frosted glass geometric shapes in cyan and deep purple".to_string()),
+            presets,
+        }
+    }
+}
+
+impl WallpaperSettings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_wallpaper(&mut self, wallpaper_id: &str) -> Result<(), String> {
+        if let Some(item) = self.presets.iter().find(|w| w.id == wallpaper_id) {
+            self.current_wallpaper_id = item.id.clone();
+            self.current_path = item.file_path.clone();
+            Ok(())
+        } else {
+            Err(format!("Wallpaper with ID '{}' not found in presets", wallpaper_id))
+        }
+    }
+
+    pub fn set_custom_path(&mut self, path: String, fit: WallpaperFit) {
+        self.current_wallpaper_id = "custom_path".to_string();
+        self.current_path = path;
+        self.fit_mode = fit;
+    }
+
+    pub fn toggle_slideshow(&mut self, enabled: bool, interval_secs: Option<u64>) {
+        self.slideshow_enabled = enabled;
+        if let Some(interval) = interval_secs {
+            self.slideshow_interval_secs = interval.max(60);
+        }
+    }
+
+    pub fn add_preset(&mut self, item: WallpaperItem) {
+        if !self.presets.iter().any(|p| p.id == item.id) {
+            self.presets.push(item);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wallpaper_defaults() {
+        let wp = WallpaperSettings::default();
+        assert_eq!(wp.current_wallpaper_id, "lens_aurora");
+        assert_eq!(wp.presets.len(), 3);
+    }
+
+    #[test]
+    fn test_set_wallpaper() {
+        let mut wp = WallpaperSettings::default();
+        assert!(wp.set_wallpaper("cyber_mesh").is_ok());
+        assert_eq!(wp.current_wallpaper_id, "cyber_mesh");
+        assert_eq!(wp.current_path, "/system/wallpapers/cyber_mesh.png");
+
+        assert!(wp.set_wallpaper("non_existent").is_err());
+    }
+
+    #[test]
+    fn test_slideshow() {
+        let mut wp = WallpaperSettings::default();
+        wp.toggle_slideshow(true, Some(3600));
+        assert!(wp.slideshow_enabled);
+        assert_eq!(wp.slideshow_interval_secs, 3600);
     }
 }

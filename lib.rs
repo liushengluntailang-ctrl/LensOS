@@ -1,43 +1,41 @@
-//! # LensOS v0.1 - Files Application Module (`apps/files/`)
+//! # LensOS Settings Crate
 //!
-//! ## Architecture Overview
-//! The LensOS Files application provides a modular, high-performance file manager built specifically
-//! for the LensOS desktop ecosystem. It enforces strict separation of concerns across dedicated modules
-//! handling file representation, folder navigation, sidebar quick-access, search filtering, recent access tracking,
-//! and asynchronous-safe disk operations.
-//!
-//! ### Module Organization
-//! - [`files`]: Contains the main [`FilesApp`] orchestrator and LensOS desktop integration interface.
-//! - [`explorer`]: Manages path navigation, location history (back/forward/up), sorting, and view modes.
-//! - [`folder`]: Encapsulates directory content representation, item counts, and spatial metadata.
-//! - [`file`]: Encapsulates individual file metadata, file types, formatted sizes, and icon associations.
-//! - [`sidebar`]: Manages system quick-access locations (Home, Desktop, Documents, Downloads, Pictures) and custom locations.
-//! - [`search`]: Provides file search capabilities with string matching, extension filtering, and recursive scan limits.
-//! - [`operations`]: Implements filesystem mutation handlers (create folder, rename, delete, copy, move) with error handling.
-//! - [`recent`]: Tracks recently accessed and pinned items for instant recovery.
-//!
-//! ### Design Philosophy
-//! - **Elegant Dark Theme**: Primary `#0D0F12` void canvas with `#161920` container surfaces.
-//! - **Frosted Glass Interface**: Glassmorphism attributes (background blur, 1px subtle borders, semi-transparent opacity).
-//! - **Minimalist Layout**: Clean visual hierarchy, zero noise, high contrast typography.
-//! - **Smooth Navigation**: Non-blocking navigation history and cached directory states.
-//! - **Future LensOS Desktop Integration**: Exposes unified UI state payloads (`FilesAppRenderState`) for the LensOS compositor.
+//! `lensos-settings` is a modular, high-performance settings architecture for LensOS.
+//! It features frosted glass theme management, wallpaper customization, user account management,
+//! security hardening, network configuration, local & cloud AI parameters, and kernel IPC messaging.
 
-pub mod explorer;
-pub mod file;
-pub mod files;
-pub mod folder;
-pub mod operations;
-pub mod recent;
-pub mod search;
-pub mod sidebar;
+pub mod accounts;
+pub mod ai;
+pub mod appearance;
+pub mod network;
+pub mod security;
+pub mod settings;
+pub mod system_info;
+pub mod theme;
+pub mod updates;
+pub mod wallpaper;
 
-// Re-exports for convenience
-pub use explorer::{FileExplorer, SortBy, SortOrder, ViewMode};
-pub use file::{FileInfo, FileMetadata, FileType};
-pub use files::{FilesApp, FilesAppRenderState, ThemeConfig};
-pub use folder::FolderInfo;
-pub use operations::{FileOperation, FileOperationHandler, OperationResult};
-pub use recent::{RecentItem, RecentTracker};
-pub use search::{SearchEngine, SearchFilter, SearchResult};
-pub use sidebar::{Sidebar, SidebarItem, SidebarLocation};
+pub use accounts::{AccountRole, AccountSettings, UserAccount};
+pub use ai::{AiPrivacyMode, AiSettings, ModelProvider};
+pub use appearance::{AccentColor, AppearanceSettings, WindowBackdropEffect};
+pub use network::{NetworkSettings, VpnConfig, VpnProtocol, WifiNetwork};
+pub use security::{AppPermission, BiometricType, DiskEncryptionStatus, SecuritySettings};
+pub use settings::{KernelIpcMessage, SettingsApp, SettingsConfig, SettingsTab};
+pub use system_info::SystemInfo;
+pub use theme::{Theme, ThemeManager};
+pub use updates::{ReleaseChannel, SystemUpdateInfo, UpdateSettings, UpdateStatus};
+pub use wallpaper::{WallpaperFit, WallpaperItem, WallpaperSettings};
+
+#[cfg(test)]
+mod lib_tests {
+    use super::*;
+
+    #[test]
+    fn test_full_settings_crate_initialization() {
+        let app = SettingsApp::new();
+        assert_eq!(app.config.system_info.os_name, "LensOS");
+        assert!(app.config.security.firewall_enabled);
+        assert!(app.config.ai.assistant_enabled);
+        assert_eq!(app.config.appearance.accent_color, AccentColor::LensTeal);
+    }
+}
