@@ -1,198 +1,224 @@
-//! # LensOS Browser Core Engine (`apps/browser`)
-//!
-//! **LensOS v0.1 - Modular Browser Architecture**
-//!
-//! Lens Browser is the primary web exploration engine for LensOS, designed from first principles
-//! with a minimalist layout, sophisticated dark theme, frosted glass aesthetic parameters,
-//! fast navigation, and native bridges for future LensOS desktop, file manager, and Lens AI integrations.
-//!
-//! ## Architectural Principles
-//! - **Modular Feature Isolation**: Each major browser domain (tabs, history, bookmarks, security, etc.)
-//!   is implemented in an independent Rust module with dedicated state controllers and trait abstractions.
-//! - **Low-Latency State Engine**: Pure Rust data structures with zero unnecessary heap allocations or unsafe code.
-//! - **Frosted Glass & Dark Theme Design**: Embedded visual configurations providing theme density, blur depth,
-//!   and glass opacity parameters for the LensOS desktop visual compositor.
-//! - **Lens AI & OS Integration Hooks**: Context summaries, tab semantic indexing, and IPC hooks designed
-//!   to expose active web state to Lens AI assistants and LensOS filesystem downloads.
-
-pub mod bookmarks;
-pub mod browser;
-pub mod downloads;
+pub mod ai;
+pub mod assistant;
+pub mod chat;
 pub mod history;
-pub mod navigation;
-pub mod search;
-pub mod security;
+pub mod image;
 pub mod settings;
-pub mod tabs;
+pub mod summarizer;
+pub mod translation;
+pub mod ui;
 
-// Re-export primary entry struct
-pub use browser::LensBrowser;
+use crate::ai::{AIConfig, AIError, AIResponse, AIService};
+use crate::assistant::{AssistantEngine, IntentMatch};
+use crate::chat::{ChatSession, MessageRole};
+use crate::history::{HistoryEntry, HistoryManager};
+use crate::image::{ImageAnalysisResult, ImageProcessor};
+use crate::settings::AISettings;
+use crate::summarizer::{SummaryOptions, SummaryResult, Summarizer};
+use crate::translation::{TranslationOptions, TranslationResult, Translator};
+use crate::ui::{ActiveView, UIState};
 
-/// Convenient prelude for importing core Lens Browser structures and traits.
-pub mod prelude {
-    pub use crate::bookmarks::{Bookmark, BookmarkFolder, BookmarkManager};
-    pub use crate::browser::{BrowserEvent, LensBrowser};
-    pub use crate::downloads::{DownloadItem, DownloadManager, DownloadState};
-    pub use crate::history::{HistoryItem, HistoryManager, HistoryQuery};
-    pub use crate::navigation::{AddressBar, NavigationAction, NavigationController, NavigationState};
-    pub use crate::search::{SearchEngine, SearchManager, SearchSuggestion};
-    pub use crate::security::{PermissionState, PermissionType, SecurityLevel, SecurityManager};
-    pub use crate::settings::{BrowserSettings, FrostedGlassTheme, ThemeConfig};
-    pub use crate::tabs::{Tab, TabId, TabManager};
+/// Main central application struct for LensAI in LensOS.
+pub struct LensAIApp {
+    pub ai_service: AIService,
+    pub chat_session: ChatSession,
+    pub assistant: AssistantEngine,
+    pub translator: Translator,
+    pub summarizer: Summarizer,
+    pub image_processor: ImageProcessor,
+    pub settings: AISettings,
+    pub history: HistoryManager,
+    pub ui_state: UIState,
 }
 
-/// Result type used throughout the Lens Browser architecture.
-pub type BrowserResult<T> = Result<T, BrowserError>;
+impl LensAIApp {
+    /// Creates a new LensAIApp instance with default configuration.
+    pub fn new() -> Self {
+        let settings = AISettings::default();
+        Self::with_settings(settings)
+    }
 
-/// Core error types for Lens Browser operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BrowserError {
-    /// Invalid URL string or malformed scheme.
-    InvalidUrl(String),
-    /// The requested tab was not found.
-    TabNotFound(tabs::TabId),
-    /// No active tab currently selected.
-    NoActiveTab,
-    /// Permission denied for requested resource or API.
-    PermissionDenied(String),
-    /// Navigation operation failed.
-    NavigationFailed(String),
-    /// Search engine or query configuration error.
-    SearchError(String),
-    /// Download task failed or interrupted.
-    DownloadError(String),
-    /// Storage, history, or settings load/save error.
-    StorageError(String),
-}
+    /// Creates a LensAIApp instance with custom settings.
+    pub fn with_settings(settings: AISettings) -> Self {
+        let ai_config = AIConfig {
+            model: settings.default_model.clone(),
+            temperature: settings.temperature,
+            max_tokens: settings.max_tokens,
+            system_instruction: Some(settings.system_prompt.clone()),
+            ..Default::default()
+        };
 
-impl std::fmt::Display for BrowserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BrowserError::InvalidUrl(url) => write!(f, "Invalid URL format: {}", url),
-            BrowserError::TabNotFound(id) => write!(f, "Tab with ID {} not found", id.0),
-            BrowserError::NoActiveTab => write!(f, "No tab is currently active"),
-            BrowserError::PermissionDenied(reason) => write!(f, "Permission denied: {}", reason),
-            BrowserError::NavigationFailed(msg) => write!(f, "Navigation failed: {}", msg),
-            BrowserError::SearchError(msg) => write!(f, "Search error: {}", msg),
-            BrowserError::DownloadError(msg) => write!(f, "Download error: {}", msg),
-            BrowserError::StorageError(msg) => write!(f, "Storage error: {}", msg),
+        let ai_service = AIService::new(ai_config);
+        let chat_session = ChatSession::new("session_init", "New Conversation")
+            .with_model(settings.default_model.clone());
+        let assistant = AssistantEngine::new();
+        let translator = Translator::new();
+        let summarizer = Summarizer::new();
+        let image_processor = ImageProcessor::new();
+        let history = HistoryManager::new();
+        let ui_state = UIState::new();
+
+        Self {
+            ai_service,
+            chat_session,
+            assistant,
+            translator,
+            summarizer,
+            image_processor,
+            settings,
+            history,
+            ui_state,
         }
+    }
+
+    /// Sends a user query to the AI engine and records conversation in active session.
+    pub fn send_message(&mut self, text: &str) -> Result<AIResponse, AIError> {
+        self.ui_state.is_processing = true;
+        self.ui_state.set_status("LensAI Generating Response...");
+
+        // Record user message
+        self.chat_session.add_message(MessageRole::User, text);
+
+        // Process generation via AI Service
+        let response_result = self.ai_service.generate_text(text);
+
+        match &response_result {
+            Ok(response) => {
+                // Record assistant response
+                self.chat_session.add_message(MessageRole::Assistant, &response.text);
+
+                if self.settings.auto_save_history {
+                    let _ = self.history.save_session(&self.chat_session);
+                }
+
+                self.ui_state.set_status("Ready");
+            }
+            Err(err) => {
+                self.ui_state.set_status(format!("Error: {}", err));
+            }
+        }
+
+        self.ui_state.is_processing = false;
+        response_result
+    }
+
+    /// Parses user prompt for system automation actions and executes if applicable.
+    pub fn run_assistant_automation(&mut self, prompt: &str) -> Result<String, String> {
+        let intent_match: IntentMatch = self.assistant.parse_intent(prompt);
+
+        if let Some(action) = &intent_match.suggested_action {
+            let result = self.assistant.execute_action(action)?;
+            self.chat_session.add_message(
+                MessageRole::System,
+                format!("[Automation Action]: {}\nResult: {}", action.description(), result),
+            );
+            Ok(result)
+        } else {
+            Err("No system automation action recognized for prompt.".to_string())
+        }
+    }
+
+    /// Translates text using the translation module.
+    pub fn translate_text(
+        &self,
+        text: &str,
+        options: TranslationOptions,
+    ) -> Result<TranslationResult, String> {
+        self.translator.translate(text, options)
+    }
+
+    /// Summarizes document or long text content.
+    pub fn summarize_text(
+        &self,
+        text: &str,
+        options: SummaryOptions,
+    ) -> Result<SummaryResult, String> {
+        self.summarizer.summarize(text, options)
+    }
+
+    /// Analyzes image bytes and returns vision metrics and OCR text.
+    pub fn analyze_image(&self, bytes: &[u8]) -> Result<ImageAnalysisResult, String> {
+        self.image_processor.analyze_image(bytes)
+    }
+
+    /// Switches the active view tab in the UI state.
+    pub fn switch_view(&mut self, view: ActiveView) {
+        self.ui_state.switch_view(view);
+    }
+
+    /// Saves the active chat session to history.
+    pub fn save_current_session(&mut self) -> Result<(), String> {
+        self.history.save_session(&self.chat_session)
+    }
+
+    /// Loads a chat session from history by session ID.
+    pub fn load_session(&mut self, session_id: &str) -> Result<(), String> {
+        if let Some(session) = self.history.get_session(session_id) {
+            self.chat_session = session.clone();
+            Ok(())
+        } else {
+            Err(format!("Session '{}' not found in history.", session_id))
+        }
+    }
+
+    /// Lists history entries.
+    pub fn list_history(&self) -> Vec<HistoryEntry> {
+        self.history.list_entries()
+    }
+
+    /// Updates app settings and synchronizes across modules and LensOS desktop.
+    pub fn update_settings(&mut self, settings: AISettings) -> Result<(), String> {
+        self.ai_service.set_model(settings.default_model.clone());
+        self.settings.sync_to_lens_os_desktop()?;
+        self.settings = settings;
+        Ok(())
+    }
+
+    /// Renders current UI frame layout specification.
+    pub fn render_ui_frame(&self) -> String {
+        self.ui_state.render_frame_spec()
     }
 }
 
-impl std::error::Error for BrowserError {}
+impl Default for LensAIApp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::prelude::*;
     use super::*;
 
     #[test]
-    fn test_lens_browser_initialization() {
-        let mut browser = LensBrowser::new(1700000000);
-        assert!(!browser.is_running);
-        assert_eq!(browser.tab_manager.len(), 0);
-
-        browser.initialize(1700000001).unwrap();
-        assert!(browser.is_running);
-        assert_eq!(browser.tab_manager.len(), 1);
-
-        let active_tab = browser.tab_manager.active_tab().unwrap();
-        assert_eq!(active_tab.url, "lens://newtab");
+    fn test_lens_ai_app_initialization() {
+        let app = LensAIApp::new();
+        assert_eq!(app.ui_state.active_view, ActiveView::Chat);
+        assert!(app.ai_service.health_check());
     }
 
     #[test]
-    fn test_multi_tab_lifecycle() {
-        let mut browser = LensBrowser::new(1700000000);
-        browser.initialize(1700000001).unwrap();
-
-        let tab2_id = browser.open_new_tab(Some("https://lensos.org"), 1700000002);
-        assert_eq!(browser.tab_manager.len(), 2);
-        assert_eq!(browser.tab_manager.active_tab().unwrap().id, tab2_id);
-
-        browser.tab_manager.set_tab_pinned(tab2_id, true).unwrap();
-        assert!(browser.tab_manager.get_tab(tab2_id).unwrap().is_pinned);
-
-        let closed = browser.close_active_tab().unwrap();
-        assert!(closed.is_some());
-        assert_eq!(browser.tab_manager.len(), 1);
+    fn test_send_message_and_history() {
+        let mut app = LensAIApp::new();
+        let res = app.send_message("Hello LensAI");
+        assert!(res.is_ok());
+        assert_eq!(app.chat_session.message_count(), 2);
     }
 
     #[test]
-    fn test_navigation_and_history() {
-        let mut browser = LensBrowser::new(1700000000);
-        browser.initialize(1700000001).unwrap();
-
-        let nav_url = browser
-            .navigate_active_tab(
-                NavigationAction::NavigateTo("https://rust-lang.org".to_string()),
-                1700000005,
-            )
-            .unwrap();
-
-        assert_eq!(nav_url, "https://rust-lang.org");
-        assert_eq!(browser.history_manager.len(), 1);
-
-        let top_sites = browser.history_manager.top_sites(5);
-        assert_eq!(top_sites[0].url, "https://rust-lang.org");
+    fn test_assistant_automation() {
+        let mut app = LensAIApp::new();
+        let res = app.run_assistant_automation("Launch terminal");
+        assert!(res.is_ok());
     }
 
     #[test]
-    fn test_bookmarks_and_search() {
-        let mut browser = LensBrowser::new(1700000000);
-        browser.initialize(1700000001).unwrap();
+    fn test_translation_and_summarizer() {
+        let app = LensAIApp::new();
+        let trans = app.translate_text("Hello world", TranslationOptions::default());
+        assert!(trans.is_ok());
 
-        let bm_id = browser
-            .bookmark_manager
-            .add_bookmark(
-                "LensOS Portal",
-                "https://lensos.org",
-                browser.bookmark_manager.bookmark_bar_folder_id,
-                1700000010,
-            )
-            .unwrap();
-
-        assert!(bm_id > 0);
-
-        let suggestions = browser.search_manager.get_suggestions(
-            "lens",
-            &browser.history_manager,
-            &browser.bookmark_manager,
-        );
-        assert!(!suggestions.is_empty());
-    }
-
-    #[test]
-    fn test_downloads_and_security() {
-        let mut browser = LensBrowser::new(1700000000);
-        browser.initialize(1700000001).unwrap();
-
-        let dl_id = browser.download_file("https://lensos.org/iso/lensos-v0.1.iso", "lensos-v0.1.iso", 1700000020);
-        assert_eq!(dl_id, 1);
-
-        browser
-            .download_manager
-            .update_progress(dl_id, 500000, Some(1000000), 100000)
-            .unwrap();
-
-        let active_dls = browser.download_manager.active_downloads();
-        assert_eq!(active_dls.len(), 1);
-
-        let sec_level = browser.security_manager.evaluate_security_level("https://lensos.org");
-        assert_eq!(sec_level, SecurityLevel::Secure);
-    }
-
-    #[test]
-    fn test_frosted_glass_theme_and_ai_context() {
-        let mut browser = LensBrowser::new(1700000000);
-        browser.initialize(1700000001).unwrap();
-
-        let theme = browser.get_ui_theme_state();
-        assert_eq!(theme.blur_radius_px, 24);
-        assert_eq!(theme.glass_opacity, 0.65);
-
-        let ai_summary = browser.get_lens_ai_context_summary();
-        assert!(ai_summary.contains("LensOS Browser Context"));
+        let sum = app.summarize_text("LensOS is a modern operating system with frosted glass design.", SummaryOptions::default());
+        assert!(sum.is_ok());
     }
 }
-

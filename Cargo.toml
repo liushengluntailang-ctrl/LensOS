@@ -1,11 +1,12 @@
 [package]
-name = "lens-browser"
+name = "lens_ai"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Architecture Team <dev@lensos.org>"]
-description = "LensOS v0.1 Browser Application Core Engine"
-license = "MIT OR Apache-2.0"
+authors = ["LensOS Team"]
+description = "LensAI application module for LensOS operating system"
 
 [dependencies]
-# LensOS Browser is implemented in clean, pure standard Rust to ensure
-# ultra-fast compilation, zero memory overhead, and portable execution across LensOS runtimes.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
