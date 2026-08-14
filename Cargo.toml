@@ -1,10 +1,11 @@
 [package]
-name = "lensos-settings"
+name = "lens-browser"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Team <dev@lensos.org>"]
-description = "Modular Rust settings application for LensOS with frosted glass aesthetics, kernel IPC, and AI integration."
+authors = ["LensOS Architecture Team <dev@lensos.org>"]
+description = "LensOS v0.1 Browser Application Core Engine"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# LensOS Browser is implemented in clean, pure standard Rust to ensure
+# ultra-fast compilation, zero memory overhead, and portable execution across LensOS runtimes.

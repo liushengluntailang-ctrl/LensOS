@@ -1,263 +1,144 @@
-use crate::accounts::AccountSettings;
-use crate::ai::AiSettings;
-use crate::appearance::AppearanceSettings;
-use crate::network::NetworkSettings;
-use crate::security::SecuritySettings;
-use crate::system_info::SystemInfo;
-use crate::theme::ThemeManager;
-use crate::updates::UpdateSettings;
-use crate::wallpaper::WallpaperSettings;
-use serde::{Deserialize, Serialize};
+//! # Browser Settings & Visual Theme Module (`settings.rs`)
+//!
+//! Encapsulates user preferences, Frosted Glass visual compositor parameters,
+//! dark theme styling options, privacy toggles, and LensOS system configuration defaults.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SettingsTab {
-    Appearance,
-    Wallpaper,
-    Theme,
-    Accounts,
-    Security,
-    Network,
-    Ai,
-    Updates,
-    SystemInfo,
+use crate::{BrowserError, BrowserResult};
+
+/// Theme visual mode selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeMode {
+    FrostedGlassDark,
+    UltraDark,
+    DeepMidnight,
+    AdaptiveSystem,
 }
 
-impl SettingsTab {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            SettingsTab::Appearance => "Appearance & Glass",
-            SettingsTab::Wallpaper => "Wallpaper & Display",
-            SettingsTab::Theme => "Theme Studio",
-            SettingsTab::Accounts => "User Accounts",
-            SettingsTab::Security => "Security & Privacy",
-            SettingsTab::Network => "Network & VPN",
-            SettingsTab::Ai => "Lens AI Engine",
-            SettingsTab::Updates => "System Updates",
-            SettingsTab::SystemInfo => "About LensOS",
-        }
-    }
-
-    pub fn icon_name(&self) -> &'static str {
-        match self {
-            SettingsTab::Appearance => "sparkles",
-            SettingsTab::Wallpaper => "image",
-            SettingsTab::Theme => "palette",
-            SettingsTab::Accounts => "users",
-            SettingsTab::Security => "shield-check",
-            SettingsTab::Network => "wifi",
-            SettingsTab::Ai => "cpu",
-            SettingsTab::Updates => "refresh-cw",
-            SettingsTab::SystemInfo => "info",
-        }
-    }
+/// Parameters controlling the LensOS Frosted Glass desktop rendering engine.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrostedGlassTheme {
+    /// Backdrop gaussian blur radius in pixels (default: 24px).
+    pub blur_radius_px: u32,
+    /// Translucent background opacity value between 0.0 and 1.0 (default: 0.65).
+    pub glass_opacity: f32,
+    /// Subtle grain noise overlay intensity for premium depth feel (default: 0.04).
+    pub noise_grain_intensity: f32,
+    /// Primary accent color hex string (e.g., "#00E5FF" for Lens Electric Cyan).
+    pub accent_color_hex: String,
+    /// Surface background tint RGBA color string.
+    pub background_tint_rgba: String,
 }
 
-/// Consolidated settings configuration for the entire LensOS environment.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct SettingsConfig {
-    pub appearance: AppearanceSettings,
-    pub wallpaper: WallpaperSettings,
-    pub theme_manager: ThemeManager,
-    pub accounts: AccountSettings,
-    pub security: SecuritySettings,
-    pub network: NetworkSettings,
-    pub ai: AiSettings,
-    pub updates: UpdateSettings,
-    pub system_info: SystemInfo,
-}
-
-/// IPC Message types dispatched to LensOS Desktop compositor and Linux Kernel integration layer.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum KernelIpcMessage {
-    ApplyAppearanceConfig { dark_mode: bool, blur_radius_px: u32 },
-    SetWallpaperPath { path: String },
-    ApplyThemeId { theme_id: String },
-    SyncAccountProfile { username: String },
-    UpdateSecurityPolicy { firewall_enabled: bool },
-    ToggleWifiState { enabled: bool },
-    ReconfigureAiEngine { provider_name: String },
-    TriggerSystemUpdateCheck,
-}
-
-/// Main LensOS Settings Application manager.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SettingsApp {
-    pub config: SettingsConfig,
-    pub active_tab: SettingsTab,
-    pub search_query: String,
-    pub unsaved_changes: bool,
-    pub status_message: Option<String>,
-}
-
-impl Default for SettingsApp {
+impl Default for FrostedGlassTheme {
     fn default() -> Self {
         Self {
-            config: SettingsConfig::default(),
-            active_tab: SettingsTab::Appearance,
-            search_query: String::new(),
-            unsaved_changes: false,
-            status_message: None,
+            blur_radius_px: 24,
+            glass_opacity: 0.65,
+            noise_grain_intensity: 0.04,
+            accent_color_hex: "#00E5FF".to_string(),
+            background_tint_rgba: "rgba(18, 20, 28, 0.75)".to_string(),
         }
     }
 }
 
-impl SettingsApp {
+/// Full theme configuration structure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeConfig {
+    pub mode: ThemeMode,
+    pub frosted_glass: FrostedGlassTheme,
+    pub font_family: String,
+    pub compact_tabs: bool,
+    pub enable_animations: bool,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            mode: ThemeMode::FrostedGlassDark,
+            frosted_glass: FrostedGlassTheme::default(),
+            font_family: "Lens Sans Display".to_string(),
+            compact_tabs: false,
+            enable_animations: true,
+        }
+    }
+}
+
+/// Browser behavior upon startup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartupBehavior {
+    OpenNewTabPage,
+    RestorePreviousSession,
+    OpenSpecificPages(Vec<String>),
+}
+
+/// Privacy and tracking protection settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrivacySettings {
+    pub do_not_track: bool,
+    pub https_only_mode: bool,
+    pub ad_block_enabled: bool,
+    pub third_party_cookie_blocking: bool,
+    pub telemetry_enabled: bool,
+    pub clear_data_on_exit: bool,
+}
+
+impl Default for PrivacySettings {
+    fn default() -> Self {
+        Self {
+            do_not_track: true,
+            https_only_mode: true,
+            ad_block_enabled: true,
+            third_party_cookie_blocking: true,
+            telemetry_enabled: false,
+            clear_data_on_exit: false,
+        }
+    }
+}
+
+/// Central configuration settings store for Lens Browser v0.1.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserSettings {
+    pub theme: ThemeConfig,
+    pub startup_behavior: StartupBehavior,
+    pub privacy: PrivacySettings,
+    pub homepage_url: String,
+    pub default_download_dir: String,
+    pub show_bookmark_bar: bool,
+    pub enable_lens_ai_assistant: bool,
+    pub zoom_level_percent: u32,
+}
+
+impl Default for BrowserSettings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeConfig::default(),
+            startup_behavior: StartupBehavior::OpenNewTabPage,
+            privacy: PrivacySettings::default(),
+            homepage_url: "lens://newtab".to_string(),
+            default_download_dir: "/home/lens/Downloads".to_string(),
+            show_bookmark_bar: true,
+            enable_lens_ai_assistant: true,
+            zoom_level_percent: 100,
+        }
+    }
+}
+
+impl BrowserSettings {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn load_from_json(json_str: &str) -> Result<Self, String> {
-        serde_json::from_str(json_str).map_err(|e| format!("Failed to parse settings JSON: {}", e))
-    }
-
-    pub fn export_to_json(&self) -> Result<String, String> {
-        serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize settings: {}", e))
-    }
-
-    pub fn select_tab(&mut self, tab: SettingsTab) {
-        self.active_tab = tab;
-        self.status_message = Some(format!("Viewing {}", tab.display_name()));
-    }
-
-    pub fn search(&mut self, query: &str) -> Vec<SettingsTab> {
-        self.search_query = query.trim().to_lowercase();
-        if self.search_query.is_empty() {
-            return vec![
-                SettingsTab::Appearance,
-                SettingsTab::Wallpaper,
-                SettingsTab::Theme,
-                SettingsTab::Accounts,
-                SettingsTab::Security,
-                SettingsTab::Network,
-                SettingsTab::Ai,
-                SettingsTab::Updates,
-                SettingsTab::SystemInfo,
-            ];
-        }
-
-        let q = &self.search_query;
-        let mut results = Vec::new();
-
-        if "appearance dark mode glass blur font opacity".contains(q) {
-            results.push(SettingsTab::Appearance);
-        }
-        if "wallpaper background desktop image dynamic fill".contains(q) {
-            results.push(SettingsTab::Wallpaper);
-        }
-        if "theme color accent cyan purple dark light palette".contains(q) {
-            results.push(SettingsTab::Theme);
-        }
-        if "user account admin password profile avatar login guest".contains(q) {
-            results.push(SettingsTab::Accounts);
-        }
-        if "security firewall luks encryption password biometric fingerprint permissions".contains(q) {
-            results.push(SettingsTab::Security);
-        }
-        if "network wifi ethernet vpn dns ip address hotspot".contains(q) {
-            results.push(SettingsTab::Network);
-        }
-        if "ai gemini assistant model prompt wake word privacy tokens".contains(q) {
-            results.push(SettingsTab::Ai);
-        }
-        if "update channel beta stable patch download check restart".contains(q) {
-            results.push(SettingsTab::Updates);
-        }
-        if "system info os version cpu ram disk uptime kernel device".contains(q) {
-            results.push(SettingsTab::SystemInfo);
-        }
-
-        results
-    }
-
-    pub fn mark_changed(&mut self) {
-        self.unsaved_changes = true;
-        self.status_message = Some("Unsaved settings changes".to_string());
-    }
-
+    /// Resets settings to factory default state.
     pub fn reset_to_defaults(&mut self) {
-        self.config = SettingsConfig::default();
-        self.unsaved_changes = false;
-        self.status_message = Some("Reset all settings to LensOS factory defaults".to_string());
+        *self = Self::default();
     }
 
-    pub fn apply_changes(&mut self) -> Vec<KernelIpcMessage> {
-        self.unsaved_changes = false;
-        self.status_message = Some("Settings applied to LensOS Desktop & Kernel".to_string());
-
-        vec![
-            KernelIpcMessage::ApplyAppearanceConfig {
-                dark_mode: self.config.appearance.dark_mode,
-                blur_radius_px: self.config.appearance.blur_radius_px,
-            },
-            KernelIpcMessage::SetWallpaperPath {
-                path: self.config.wallpaper.current_path.clone(),
-            },
-            KernelIpcMessage::ApplyThemeId {
-                theme_id: self.config.theme_manager.active_theme_id.clone(),
-            },
-            KernelIpcMessage::SyncAccountProfile {
-                username: self.config.accounts.current_user.username.clone(),
-            },
-            KernelIpcMessage::UpdateSecurityPolicy {
-                firewall_enabled: self.config.security.firewall_enabled,
-            },
-            KernelIpcMessage::ToggleWifiState {
-                enabled: self.config.network.wifi_enabled,
-            },
-            KernelIpcMessage::ReconfigureAiEngine {
-                provider_name: format!("{:?}", self.config.ai.model_provider),
-            },
-        ]
-    }
-
-    /// Renders a structured Glass UI specification layout representation.
-    pub fn render_glass_ui_spec(&self) -> String {
-        format!(
-            "LensOS Frosted Glass UI Layout [Tab: {}] - Theme: {} - DarkMode: {} - Accent: {}",
-            self.active_tab.display_name(),
-            self.config.theme_manager.get_active_theme().name,
-            self.config.appearance.dark_mode,
-            self.config.appearance.accent_color.to_hex()
-        )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_settings_app_new() {
-        let app = SettingsApp::new();
-        assert_eq!(app.active_tab, SettingsTab::Appearance);
-        assert!(!app.unsaved_changes);
-    }
-
-    #[test]
-    fn test_search() {
-        let mut app = SettingsApp::new();
-        let res = app.search("wifi");
-        assert!(res.contains(&SettingsTab::Network));
-
-        let res_ai = app.search("gemini");
-        assert!(res_ai.contains(&SettingsTab::Ai));
-    }
-
-    #[test]
-    fn test_json_roundtrip() {
-        let app = SettingsApp::new();
-        let json = app.export_to_json().unwrap();
-        let loaded = SettingsApp::load_from_json(&json).unwrap();
-        assert_eq!(app.config.appearance.dark_mode, loaded.config.appearance.dark_mode);
-    }
-
-    #[test]
-    fn test_apply_changes_ipc() {
-        let mut app = SettingsApp::new();
-        app.mark_changed();
-        let ipc_messages = app.apply_changes();
-        assert!(!app.unsaved_changes);
-        assert!(!ipc_messages.is_empty());
+    /// Adjusts page display zoom level percentage (min 25%, max 500%).
+    pub fn set_zoom(&mut self, percent: u32) -> BrowserResult<()> {
+        if !(25..=500).contains(&percent) {
+            return Err(BrowserError::StorageError("Zoom level must be between 25% and 500%".into()));
+        }
+        self.zoom_level_percent = percent;
+        Ok(())
     }
 }

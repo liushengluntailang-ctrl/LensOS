@@ -1,165 +1,205 @@
-//! LensOS File Search Engine Module (`src/search.rs`)
+//! # Search Integration Engine (`search.rs`)
 //!
-//! Provides file search capabilities with string matching, extension filtering,
-//! depth restrictions, and relevance scoring for LensOS v0.1.
+//! Manages search engine providers (Lens AI Search, DuckDuckGo, Google, Custom),
+//! auto-completion suggestion aggregators, and search URL formatters.
 
-use crate::file::FileInfo;
-use std::fs;
-use std::path::Path;
+use crate::bookmarks::BookmarkManager;
+use crate::history::HistoryManager;
+use crate::{BrowserError, BrowserResult};
 
-/// Filtering rules for constraining file search queries.
+/// Supported search engine provider types.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchFilter {
-    pub case_sensitive: bool,
-    pub match_extension: Option<String>,
-    pub max_depth: usize,
-    pub include_hidden: bool,
+pub enum SearchEngineType {
+    LensAI,
+    DuckDuckGo,
+    Google,
+    Bing,
+    Custom,
 }
 
-impl Default for SearchFilter {
-    fn default() -> Self {
-        Self {
-            case_sensitive: false,
-            match_extension: None,
-            max_depth: 5,
-            include_hidden: false,
-        }
-    }
-}
-
-/// Individual search result containing file metadata and matching score.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SearchResult {
-    pub file_info: FileInfo,
-    pub match_score: u32,
-    pub matched_in_name: bool,
-}
-
-/// Search execution engine for LensOS Files.
-#[derive(Debug, Clone, Default)]
+/// Metadata and URL query templates for a search provider.
+#[derive(Debug, Clone)]
 pub struct SearchEngine {
-    pub last_query: String,
-    pub results: Vec<SearchResult>,
-    pub is_searching: bool,
+    pub id: String,
+    pub name: String,
+    pub keyword: String,
+    pub search_url_template: String,
+    pub suggest_url_template: Option<String>,
+    pub engine_type: SearchEngineType,
 }
 
 impl SearchEngine {
-    /// Instantiates a clean search engine instance.
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        keyword: impl Into<String>,
+        url_template: impl Into<String>,
+        engine_type: SearchEngineType,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            keyword: keyword.into(),
+            search_url_template: url_template.into(),
+            suggest_url_template: None,
+            engine_type,
+        }
+    }
+
+    /// Replaces `{searchTerms}` placeholder in template with query string.
+    pub fn build_search_url(&self, query: &str) -> String {
+        let encoded_query = query.replace(' ', "+");
+        self.search_url_template.replace("{searchTerms}", &encoded_query)
+    }
+}
+
+/// Source categorization for address bar suggestions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SuggestionSource {
+    History,
+    Bookmark,
+    SearchEngine,
+    LensAiContext,
+}
+
+/// An inline auto-complete or search result suggestion.
+#[derive(Debug, Clone)]
+pub struct SearchSuggestion {
+    pub text: String,
+    pub url: Option<String>,
+    pub source: SuggestionSource,
+    pub relevance_score: u32,
+}
+
+/// Manages configured search engines and aggregates intelligent address bar suggestions.
+#[derive(Debug)]
+pub struct SearchManager {
+    engines: Vec<SearchEngine>,
+    default_engine_id: String,
+}
+
+impl Default for SearchManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SearchManager {
+    /// Initializes SearchManager with standard default search engines (Lens AI Search primary).
     pub fn new() -> Self {
-        Self::default()
+        let lens_search = SearchEngine::new(
+            "lens-ai",
+            "Lens AI Search",
+            "@lens",
+            "https://search.lensos.org/?q={searchTerms}",
+            SearchEngineType::LensAI,
+        );
+
+        let duckduckgo = SearchEngine::new(
+            "duckduckgo",
+            "DuckDuckGo",
+            "@ddg",
+            "https://duckduckgo.com/?q={searchTerms}",
+            SearchEngineType::DuckDuckGo,
+        );
+
+        let google = SearchEngine::new(
+            "google",
+            "Google",
+            "@g",
+            "https://www.google.com/search?q={searchTerms}",
+            SearchEngineType::Google,
+        );
+
+        Self {
+            engines: vec![lens_search, duckduckgo, google],
+            default_engine_id: "lens-ai".to_string(),
+        }
     }
 
-    /// Recursively scans `root_path` searching for files matching `query` and constrained by `filter`.
-    pub fn search(
-        &mut self,
-        root_path: &Path,
-        query: &str,
-        filter: &SearchFilter,
-    ) -> Vec<SearchResult> {
-        self.last_query = query.to_string();
-        self.is_searching = true;
-        self.results.clear();
+    /// Returns reference to default search engine.
+    pub fn default_engine(&self) -> &SearchEngine {
+        self.engines
+            .iter()
+            .find(|e| e.id == self.default_engine_id)
+            .unwrap_or(&self.engines[0])
+    }
 
-        if query.trim().is_empty() {
-            self.is_searching = false;
-            return Vec::new();
+    /// Sets default search engine by ID.
+    pub fn set_default_engine(&mut self, id: &str) -> BrowserResult<()> {
+        if self.engines.iter().any(|e| e.id == id) {
+            self.default_engine_id = id.to_string();
+            Ok(())
+        } else {
+            Err(BrowserError::SearchError(format!("Search engine '{}' not registered", id)))
+        }
+    }
+
+    /// Registers a custom search engine provider.
+    pub fn add_engine(&mut self, engine: SearchEngine) {
+        self.engines.retain(|e| e.id != engine.id);
+        self.engines.push(engine);
+    }
+
+    /// Builds a search URL for query using default or keyword-specified search engine.
+    pub fn format_query_url(&self, query: &str) -> String {
+        let trimmed = query.trim();
+
+        // Check if query starts with engine shortcut keyword (e.g. "@ddg rust")
+        for engine in &self.engines {
+            if trimmed.starts_with(&engine.keyword) {
+                let actual_query = trimmed[engine.keyword.len()..].trim();
+                return engine.build_search_url(actual_query);
+            }
         }
 
-        let mut results = Vec::new();
-        self.recursive_scan(root_path, query, filter, 0, &mut results);
-
-        // Sort results by relevance score descending
-        results.sort_by(|a, b| b.match_score.cmp(&a.match_score));
-
-        self.results = results.clone();
-        self.is_searching = false;
-
-        results
+        self.default_engine().build_search_url(trimmed)
     }
 
-    /// Clears the stored search query and result cache.
-    pub fn clear(&mut self) {
-        self.last_query.clear();
-        self.results.clear();
-        self.is_searching = false;
-    }
-
-    /// Internal recursive traversal method for performing directory inspection.
-    fn recursive_scan(
+    /// Aggregates address bar suggestions from bookmarks, history, and search engine.
+    pub fn get_suggestions(
         &self,
-        dir: &Path,
-        query: &str,
-        filter: &SearchFilter,
-        current_depth: usize,
-        results: &mut Vec<SearchResult>,
-    ) {
-        if current_depth > filter.max_depth {
-            return;
+        input: &str,
+        history: &HistoryManager,
+        bookmarks: &BookmarkManager,
+    ) -> Vec<SearchSuggestion> {
+        let mut suggestions = Vec::new();
+        if input.trim().is_empty() {
+            return suggestions;
         }
 
-        let read_dir = match fs::read_dir(dir) {
-            Ok(entries) => entries,
-            Err(_) => return,
-        };
-
-        for entry in read_dir.flatten() {
-            let path = entry.path();
-            if let Ok(file_info) = FileInfo::from_path(&path) {
-                if !filter.include_hidden && file_info.is_hidden {
-                    continue;
-                }
-
-                // Check extension filter
-                if let Some(ref required_ext) = filter.match_extension {
-                    if file_info
-                        .extension
-                        .as_ref()
-                        .map(|e| e.to_lowercase() != required_ext.to_lowercase())
-                        .unwrap_or(true)
-                    {
-                        if file_info.file_type.is_dir() {
-                            self.recursive_scan(&path, query, filter, current_depth + 1, results);
-                        }
-                        continue;
-                    }
-                }
-
-                // Match query string against file name
-                if let Some(score) = self.calculate_match_score(&file_info.name, query, filter.case_sensitive) {
-                    results.push(SearchResult {
-                        file_info: file_info.clone(),
-                        match_score: score,
-                        matched_in_name: true,
-                    });
-                }
-
-                // Recurse into subdirectories
-                if file_info.file_type.is_dir() {
-                    self.recursive_scan(&path, query, filter, current_depth + 1, results);
-                }
-            }
+        // 1. Search Bookmarks
+        for bm in bookmarks.search(input).iter().take(3) {
+            suggestions.push(SearchSuggestion {
+                text: bm.title.clone(),
+                url: Some(bm.url.clone()),
+                source: SuggestionSource::Bookmark,
+                relevance_score: 90,
+            });
         }
-    }
 
-    /// Computes a relevance match score based on substring match and prefix alignment.
-    fn calculate_match_score(&self, target: &str, query: &str, case_sensitive: bool) -> Option<u32> {
-        let (t, q) = if case_sensitive {
-            (target.to_string(), query.to_string())
-        } else {
-            (target.to_lowercase(), query.to_lowercase())
-        };
-
-        if let Some(pos) = t.find(&q) {
-            let mut score = 100u32;
-            if pos == 0 {
-                score += 50; // Exact prefix match bonus
-            }
-            if t == q {
-                score += 100; // Exact name match bonus
-            }
-            Some(score)
-        } else {
-            None
+        // 2. Search History
+        let hist_query = crate::history::HistoryQuery::new().with_filter(input).with_limit(3);
+        for item in history.query(&hist_query) {
+            suggestions.push(SearchSuggestion {
+                text: item.title.clone(),
+                url: Some(item.url.clone()),
+                source: SuggestionSource::History,
+                relevance_score: 80,
+            });
         }
+
+        // 3. Add default search engine query suggestion
+        let default_engine = self.default_engine();
+        suggestions.push(SearchSuggestion {
+            text: format!("Search {} for \"{}\"", default_engine.name, input),
+            url: Some(default_engine.build_search_url(input)),
+            source: SuggestionSource::SearchEngine,
+            relevance_score: 100,
+        });
+
+        // Sort by relevance score
+        suggestions.sort_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+        suggestions
     }
 }

@@ -1,159 +1,117 @@
-use serde::{Deserialize, Serialize};
+//! # Security & Permissions Manager (`security.rs`)
+//!
+//! Enforces HTTPS security verification, per-origin hardware/API permissions,
+//! content blocking (adblock/anti-tracking), and sandboxing checks for LensOS.
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum DiskEncryptionStatus {
-    EncryptedLuks,
-    EncryptedLensVault,
-    Unencrypted,
-    EncryptingProgress(u8),
+use std::collections::HashMap;
+
+/// Overall web page security state classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecurityLevel {
+    /// Fully encrypted HTTPS connection with verified SSL certificate.
+    Secure,
+    /// Encrypted HTTPS with mixed content or minor certificate warnings.
+    Warning,
+    /// Unencrypted HTTP or invalid/expired SSL certificate.
+    Insecure,
+    /// Local trusted system origin (`lens://` or local file).
+    Internal,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum BiometricType {
-    Fingerprint,
-    FaceID,
-    SecurityKeyYubi,
-    None,
+/// Information describing an SSL/TLS server certificate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SslCertificateInfo {
+    pub subject_cn: String,
+    pub issuer: String,
+    pub valid_from: u64,
+    pub valid_to: u64,
+    pub fingerprint_sha256: String,
+    pub is_valid: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AppPermission {
-    pub app_id: String,
-    pub app_name: String,
-    pub camera: bool,
-    pub microphone: bool,
-    pub location: bool,
-    pub storage: bool,
-    pub network: bool,
+/// Web API permission capability types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PermissionType {
+    Camera,
+    Microphone,
+    Geolocation,
+    Notifications,
+    Clipboard,
+    LensAiContextAccess,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SecuritySettings {
-    pub firewall_enabled: bool,
-    pub stealth_mode: bool,
-    pub block_incoming_pings: bool,
-    pub disk_encryption: DiskEncryptionStatus,
-    pub screen_lock_timeout_mins: u32,
-    pub require_password_after_sleep: bool,
-    pub biometric_type: BiometricType,
-    pub app_permissions: Vec<AppPermission>,
-    pub sandbox_isolation_strict: bool,
-    pub kernel_module_signing_required: bool,
-    pub automatic_security_patches: bool,
+/// Authorization grant decision for a permission request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionState {
+    Allow,
+    Block,
+    Ask,
 }
 
-impl Default for SecuritySettings {
-    fn default() -> Self {
-        let sample_app_perms = vec![
-            AppPermission {
-                app_id: "com.lensos.browser".to_string(),
-                app_name: "Lens Browser".to_string(),
-                camera: true,
-                microphone: true,
-                location: true,
-                storage: true,
-                network: true,
-            },
-            AppPermission {
-                app_id: "com.lensos.terminal".to_string(),
-                app_name: "Lens Glass Terminal".to_string(),
-                camera: false,
-                microphone: false,
-                location: false,
-                storage: true,
-                network: true,
-            },
-        ];
-
-        Self {
-            firewall_enabled: true,
-            stealth_mode: true,
-            block_incoming_pings: true,
-            disk_encryption: DiskEncryptionStatus::EncryptedLensVault,
-            screen_lock_timeout_mins: 10,
-            require_password_after_sleep: true,
-            biometric_type: BiometricType::Fingerprint,
-            app_permissions: sample_app_perms,
-            sandbox_isolation_strict: true,
-            kernel_module_signing_required: true,
-            automatic_security_patches: true,
-        }
-    }
+/// Manages website security classification, per-origin permissions, and ad blocking.
+#[derive(Debug, Default)]
+pub struct SecurityManager {
+    /// Domain origin permissions map: "example.com" -> { PermissionType -> PermissionState }
+    origin_permissions: HashMap<String, HashMap<PermissionType, PermissionState>>,
+    /// List of blocked tracker/ad domains.
+    blocked_domains: Vec<String>,
 }
 
-impl SecuritySettings {
+impl SecurityManager {
     pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn set_firewall(&mut self, enabled: bool) {
-        self.firewall_enabled = enabled;
-    }
-
-    pub fn update_app_permission(&mut self, permission: AppPermission) {
-        if let Some(pos) = self
-            .app_permissions
-            .iter()
-            .position(|p| p.app_id == permission.app_id)
-        {
-            self.app_permissions[pos] = permission;
-        } else {
-            self.app_permissions.push(permission);
-        }
-    }
-
-    pub fn calculate_security_score(&self) -> u32 {
-        let mut score = 0u32;
-        if self.firewall_enabled {
-            score += 20;
-        }
-        if self.stealth_mode {
-            score += 10;
-        }
-        if matches!(
-            self.disk_encryption,
-            DiskEncryptionStatus::EncryptedLuks | DiskEncryptionStatus::EncryptedLensVault
-        ) {
-            score += 30;
-        }
-        if self.require_password_after_sleep {
-            score += 10;
-        }
-        if self.sandbox_isolation_strict {
-            score += 15;
-        }
-        if self.kernel_module_signing_required {
-            score += 15;
-        }
-        score
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_security_defaults() {
-        let sec = SecuritySettings::default();
-        assert!(sec.firewall_enabled);
-        assert_eq!(sec.calculate_security_score(), 100);
-    }
-
-    #[test]
-    fn test_update_permissions() {
-        let mut sec = SecuritySettings::default();
-        let updated = AppPermission {
-            app_id: "com.lensos.browser".to_string(),
-            app_name: "Lens Browser".to_string(),
-            camera: false,
-            microphone: false,
-            location: false,
-            storage: true,
-            network: true,
+        let mut mgr = Self {
+            origin_permissions: HashMap::new(),
+            blocked_domains: Vec::new(),
         };
 
-        sec.update_app_permission(updated);
-        assert!(!sec.app_permissions[0].camera);
+        // Populate baseline tracker blocklist
+        mgr.blocked_domains.push("analytics.example.com".to_string());
+        mgr.blocked_domains.push("doubleclick.net".to_string());
+        mgr.blocked_domains.push("adserver.com".to_string());
+
+        mgr
+    }
+
+    /// Evaluates `SecurityLevel` based on URL scheme and connection attributes.
+    pub fn evaluate_security_level(&self, url: &str) -> SecurityLevel {
+        if url.starts_with("lens://") || url.starts_with("about:") || url.starts_with("file://") {
+            SecurityLevel::Internal
+        } else if url.starts_with("https://") {
+            SecurityLevel::Secure
+        } else {
+            SecurityLevel::Insecure
+        }
+    }
+
+    /// Gets permission grant state for an origin domain and capability.
+    pub fn get_permission(&self, origin: &str, perm: PermissionType) -> PermissionState {
+        if let Some(map) = self.origin_permissions.get(origin) {
+            if let Some(&state) = map.get(&perm) {
+                return state;
+            }
+        }
+        PermissionState::Ask
+    }
+
+    /// Updates permission state for a domain origin.
+    pub fn set_permission(&mut self, origin: impl Into<String>, perm: PermissionType, state: PermissionState) {
+        let orig = origin.into();
+        self.origin_permissions
+            .entry(orig)
+            .or_default()
+            .insert(perm, state);
+    }
+
+    /// Checks if a network request URL matches content blocking / ad block rules.
+    pub fn is_url_blocked(&self, url: &str) -> bool {
+        self.blocked_domains.iter().any(|domain| url.contains(domain))
+    }
+
+    /// Adds a domain rule to content blocker blocklist.
+    pub fn add_block_rule(&mut self, domain: impl Into<String>) {
+        let dom = domain.into();
+        if !self.blocked_domains.contains(&dom) {
+            self.blocked_domains.push(dom);
+        }
     }
 }
