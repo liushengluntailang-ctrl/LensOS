@@ -1,12 +1,9 @@
 [package]
-name = "lensos_integration"
+name = "lensos-files"
 version = "0.1.0"
 edition = "2021"
-authors = ["LensOS Kernel Team <engineering@lensos.org>"]
-description = "LensOS v0.1 Integration Module providing GitHub authentication, repository management, file system bridging, and Lens AI integration."
+authors = ["LensOS Team"]
+description = "LensOS v0.1 Files Application Module"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "2.0"
-chrono = { version = "0.4", features = ["serde"] }
+# Standard library is used for maximum performance, security, and portability in LensOS.
