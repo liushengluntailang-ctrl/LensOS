@@ -1,189 +1,62 @@
-pub mod ai;
-pub mod assistant;
-pub mod chat;
-pub mod history;
-pub mod image;
-pub mod settings;
-pub mod summarizer;
-pub mod translation;
-pub mod ui;
+//! # LensOS v0.2 Runtime Engine
+//!
+//! The `runtime` module provides the graphics display pipeline, linear framebuffer
+//! drivers, software 2D renderer, multi-layer window compositor, cursor rendering,
+//! keyboard/mouse input drivers, and QEMU hardware initialization for LensOS v0.2.
+//!
+//! ## Subsystems
+//!
+//! - [`display`]: Pixel formats, screen resolution definitions, and display metadata.
+//! - [`framebuffer`]: Framebuffer memory representations, color primitives, and blitting.
+//! - [`renderer`]: 2D geometric shapes, built-in bitmap fonts, and LensOS brand graphics.
+//! - [`compositor`]: Multi-surface z-ordered alpha compositor with drop shadow support.
+//! - [`cursor`]: Mouse cursor shapes, hotspot positioning, and software pointer rendering.
+//! - [`input`]: Unified input event queue, KeyCodes, KeyEvents, and MouseEvents.
+//! - [`keyboard`]: PS/2 scancode sets 1 & 2 decoder, modifier state tracking, and layout mapping.
+//! - [`mouse`]: PS/2 and IntelliMouse packet parser with delta sign extension and clamping.
+//! - [`startup`]: [`RuntimeManager`] orchestrating the startup lifecycle, main loop, and frame rendering.
+//! - [`qemu`]: Bochs VBE graphics register programming, Port 0xE9 debug streaming, and RAMFB support.
 
-use crate::ai::{AIConfig, AIError, AIResponse, AIService};
-use crate::assistant::{AssistantEngine, IntentMatch};
-use crate::chat::{ChatSession, MessageRole};
-use crate::history::{HistoryEntry, HistoryManager};
-use crate::image::{ImageAnalysisResult, ImageProcessor};
-use crate::settings::AISettings;
-use crate::summarizer::{SummaryOptions, SummaryResult, Summarizer};
-use crate::translation::{TranslationOptions, TranslationResult, Translator};
-use crate::ui::{ActiveView, UIState};
+pub mod compositor;
+pub mod cursor;
+pub mod display;
+pub mod framebuffer;
+pub mod input;
+pub mod keyboard;
+pub mod mouse;
+pub mod qemu;
+pub mod renderer;
+pub mod startup;
 
-/// Main central application struct for LensAI in LensOS.
-pub struct LensAIApp {
-    pub ai_service: AIService,
-    pub chat_session: ChatSession,
-    pub assistant: AssistantEngine,
-    pub translator: Translator,
-    pub summarizer: Summarizer,
-    pub image_processor: ImageProcessor,
-    pub settings: AISettings,
-    pub history: HistoryManager,
-    pub ui_state: UIState,
-}
+// Re-export primary types for LensOS modules (boot, kernel, desktop, ui, system)
+pub use compositor::{Compositor, CompositorConfig, Layer, LayerId, WindowSurface};
+pub use cursor::{Cursor, CursorShape, MouseState};
+pub use display::{DisplayInfo, DisplayMode, PixelFormat, Resolution};
+pub use framebuffer::{Color, Framebuffer, FramebufferConfig};
+pub use input::{
+    InputDevice, InputEvent, InputManager, KeyCode, KeyEvent, KeyState, ModifierState, MouseButton,
+    MouseEvent,
+};
+pub use keyboard::{Keyboard, KeyboardLayout, Scancode};
+pub use mouse::{Mouse, MouseButtonState, MousePacket};
+pub use qemu::{QemuBochsVbe, QemuDebugPort, QemuDisplayType, QemuFramebuffer};
+pub use renderer::{Font, Renderer};
+pub use startup::{RuntimeConfig, RuntimeManager, StartupPhase};
 
-impl LensAIApp {
-    /// Creates a new LensAIApp instance with default configuration.
-    pub fn new() -> Self {
-        let settings = AISettings::default();
-        Self::with_settings(settings)
-    }
+/// LensOS Runtime Version identifier.
+pub const RUNTIME_VERSION: &str = "0.2.0";
 
-    /// Creates a LensAIApp instance with custom settings.
-    pub fn with_settings(settings: AISettings) -> Self {
-        let ai_config = AIConfig {
-            model: settings.default_model.clone(),
-            temperature: settings.temperature,
-            max_tokens: settings.max_tokens,
-            system_instruction: Some(settings.system_prompt.clone()),
-            ..Default::default()
-        };
+/// Scancode type alias for convenience in low-level kernel drivers.
+pub type Scancode = u8;
 
-        let ai_service = AIService::new(ai_config);
-        let chat_session = ChatSession::new("session_init", "New Conversation")
-            .with_model(settings.default_model.clone());
-        let assistant = AssistantEngine::new();
-        let translator = Translator::new();
-        let summarizer = Summarizer::new();
-        let image_processor = ImageProcessor::new();
-        let history = HistoryManager::new();
-        let ui_state = UIState::new();
-
-        Self {
-            ai_service,
-            chat_session,
-            assistant,
-            translator,
-            summarizer,
-            image_processor,
-            settings,
-            history,
-            ui_state,
-        }
-    }
-
-    /// Sends a user query to the AI engine and records conversation in active session.
-    pub fn send_message(&mut self, text: &str) -> Result<AIResponse, AIError> {
-        self.ui_state.is_processing = true;
-        self.ui_state.set_status("LensAI Generating Response...");
-
-        // Record user message
-        self.chat_session.add_message(MessageRole::User, text);
-
-        // Process generation via AI Service
-        let response_result = self.ai_service.generate_text(text);
-
-        match &response_result {
-            Ok(response) => {
-                // Record assistant response
-                self.chat_session.add_message(MessageRole::Assistant, &response.text);
-
-                if self.settings.auto_save_history {
-                    let _ = self.history.save_session(&self.chat_session);
-                }
-
-                self.ui_state.set_status("Ready");
-            }
-            Err(err) => {
-                self.ui_state.set_status(format!("Error: {}", err));
-            }
-        }
-
-        self.ui_state.is_processing = false;
-        response_result
-    }
-
-    /// Parses user prompt for system automation actions and executes if applicable.
-    pub fn run_assistant_automation(&mut self, prompt: &str) -> Result<String, String> {
-        let intent_match: IntentMatch = self.assistant.parse_intent(prompt);
-
-        if let Some(action) = &intent_match.suggested_action {
-            let result = self.assistant.execute_action(action)?;
-            self.chat_session.add_message(
-                MessageRole::System,
-                format!("[Automation Action]: {}\nResult: {}", action.description(), result),
-            );
-            Ok(result)
-        } else {
-            Err("No system automation action recognized for prompt.".to_string())
-        }
-    }
-
-    /// Translates text using the translation module.
-    pub fn translate_text(
-        &self,
-        text: &str,
-        options: TranslationOptions,
-    ) -> Result<TranslationResult, String> {
-        self.translator.translate(text, options)
-    }
-
-    /// Summarizes document or long text content.
-    pub fn summarize_text(
-        &self,
-        text: &str,
-        options: SummaryOptions,
-    ) -> Result<SummaryResult, String> {
-        self.summarizer.summarize(text, options)
-    }
-
-    /// Analyzes image bytes and returns vision metrics and OCR text.
-    pub fn analyze_image(&self, bytes: &[u8]) -> Result<ImageAnalysisResult, String> {
-        self.image_processor.analyze_image(bytes)
-    }
-
-    /// Switches the active view tab in the UI state.
-    pub fn switch_view(&mut self, view: ActiveView) {
-        self.ui_state.switch_view(view);
-    }
-
-    /// Saves the active chat session to history.
-    pub fn save_current_session(&mut self) -> Result<(), String> {
-        self.history.save_session(&self.chat_session)
-    }
-
-    /// Loads a chat session from history by session ID.
-    pub fn load_session(&mut self, session_id: &str) -> Result<(), String> {
-        if let Some(session) = self.history.get_session(session_id) {
-            self.chat_session = session.clone();
-            Ok(())
-        } else {
-            Err(format!("Session '{}' not found in history.", session_id))
-        }
-    }
-
-    /// Lists history entries.
-    pub fn list_history(&self) -> Vec<HistoryEntry> {
-        self.history.list_entries()
-    }
-
-    /// Updates app settings and synchronizes across modules and LensOS desktop.
-    pub fn update_settings(&mut self, settings: AISettings) -> Result<(), String> {
-        self.ai_service.set_model(settings.default_model.clone());
-        self.settings.sync_to_lens_os_desktop()?;
-        self.settings = settings;
-        Ok(())
-    }
-
-    /// Renders current UI frame layout specification.
-    pub fn render_ui_frame(&self) -> String {
-        self.ui_state.render_frame_spec()
-    }
-}
-
-impl Default for LensAIApp {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Device identifier type placeholder for input hardware enumeration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputDevice {
+    Ps2Keyboard,
+    Ps2Mouse,
+    VirtioInput,
+    SerialPort,
+    VirtualDevice,
 }
 
 #[cfg(test)]
@@ -191,34 +64,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lens_ai_app_initialization() {
-        let app = LensAIApp::new();
-        assert_eq!(app.ui_state.active_view, ActiveView::Chat);
-        assert!(app.ai_service.health_check());
+    fn test_runtime_initialization() {
+        let config = RuntimeConfig {
+            resolution: Resolution::new(800, 600, 60),
+            pixel_format: PixelFormat::Bgra8888,
+            enable_double_buffering: true,
+            enable_cursor: true,
+            enable_qemu_lfb: false,
+            qemu_lfb_address: 0xE0000000,
+            target_fps: 60,
+        };
+
+        let mut runtime = RuntimeManager::new(config);
+        assert_eq!(runtime.phase(), StartupPhase::Uninitialized);
+
+        let init_res = runtime.init();
+        assert!(init_res.is_ok());
+        assert!(runtime.is_running());
+        assert_eq!(runtime.phase(), StartupPhase::Running);
     }
 
     #[test]
-    fn test_send_message_and_history() {
-        let mut app = LensAIApp::new();
-        let res = app.send_message("Hello LensAI");
-        assert!(res.is_ok());
-        assert_eq!(app.chat_session.message_count(), 2);
+    fn test_color_blending() {
+        let red = Color::from_rgba(255, 0, 0, 255);
+        let semi_blue = Color::from_rgba(0, 0, 255, 128);
+        let blended = semi_blue.blend_over(red);
+
+        assert!(blended.r > 0);
+        assert!(blended.b > 0);
     }
 
     #[test]
-    fn test_assistant_automation() {
-        let mut app = LensAIApp::new();
-        let res = app.run_assistant_automation("Launch terminal");
-        assert!(res.is_ok());
+    fn test_keyboard_scancode_translation() {
+        let mut kb = Keyboard::new(KeyboardLayout::UsQwerty);
+        // Press 'A' (Set 1 scancode 0x1E)
+        let event = kb.process_scancode(0x1E);
+        assert!(event.is_some());
+        let ev = event.unwrap();
+        assert_eq!(ev.key, KeyCode::KeyA);
+        assert_eq!(ev.state, KeyState::Pressed);
+        assert_eq!(ev.character, Some('a'));
+
+        // Release 'A' (Set 1 scancode 0x1E | 0x80 = 0x9E)
+        let rel_event = kb.process_scancode(0x9E);
+        assert!(rel_event.is_some());
+        let rel_ev = rel_event.unwrap();
+        assert_eq!(rel_ev.key, KeyCode::KeyA);
+        assert_eq!(rel_ev.state, KeyState::Released);
     }
 
     #[test]
-    fn test_translation_and_summarizer() {
-        let app = LensAIApp::new();
-        let trans = app.translate_text("Hello world", TranslationOptions::default());
-        assert!(trans.is_ok());
+    fn test_compositor_layers() {
+        let mut compositor = Compositor::new(CompositorConfig::default());
+        let layer1 = compositor.create_layer("Test Layer", 200, 200);
+        assert_eq!(layer1.0, 1);
 
-        let sum = app.summarize_text("LensOS is a modern operating system with frosted glass design.", SummaryOptions::default());
-        assert!(sum.is_ok());
+        assert!(compositor.get_layer(layer1).is_some());
+        compositor.bring_to_front(layer1);
+        assert!(compositor.remove_layer(layer1));
+        assert!(compositor.get_layer(layer1).is_none());
     }
 }

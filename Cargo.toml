@@ -1,12 +1,17 @@
 [package]
-name = "lens_ai"
-version = "0.1.0"
+name = "lensos-runtime"
+version = "0.2.0"
 edition = "2021"
-authors = ["LensOS Team"]
-description = "LensAI application module for LensOS operating system"
+authors = ["LensOS Team <core@lensos.dev>"]
+description = "LensOS v0.2 Operating System Runtime Engine, Compositor, Framebuffer & Input Subsystem"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["os", "kernel", "runtime", "framebuffer", "compositor"]
+categories = ["no-std", "os::kernel-dev"]
+
+[features]
+default = ["std"]
+std = []
+qemu-debug = []
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-thiserror = "1.0"
